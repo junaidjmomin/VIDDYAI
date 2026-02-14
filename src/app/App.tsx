@@ -134,7 +134,7 @@ function WelcomeScreen({ userName, setUserName, selectedGrade, setSelectedGrade,
         name: userName,
         grade: selectedGrade,
         subject: selectedSubject
-      });
+      }) as any;
 
       if (response.success) {
         setStudent(response.profile);
@@ -306,7 +306,7 @@ function GameScreen({ subject, onComplete }: any) {
             <div className="w-10 h-10 rounded-full bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.4)] flex items-center justify-center">
               <CheckCircle2 size={20} className="text-white" />
             </div>
-            <div className="w-1 h-px bg-border w-8" />
+            <div className="w-8 h-px bg-border" />
             <motion.div 
               animate={{ scale: [1, 1.1, 1] }}
               transition={{ duration: 2, repeat: Infinity }}
@@ -314,7 +314,7 @@ function GameScreen({ subject, onComplete }: any) {
             >
               <currentSubject.icon size={24} className="text-white" />
             </motion.div>
-            <div className="w-1 h-px bg-border w-8" />
+            <div className="w-8 h-px bg-border" />
             <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
               <Star size={20} className="text-muted-foreground" />
             </div>

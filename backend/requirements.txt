@@ -6,9 +6,23 @@ pydantic-settings==2.6.0
 python-dotenv==1.0.1
 aiofiles==24.1.0
 
-# Optional: For full RAG implementation
-# langchain==0.3.0
-# chromadb==0.5.0
-# openai==1.54.0
-# pypdf==5.1.0
-# sentence-transformers==3.3.0
+# LangChain & LLM
+langchain==0.3.13
+langchain-openai==0.2.14
+langchain-community==0.3.13
+openai==1.57.4
+
+# Vector DB & Embeddings
+chromadb==0.5.23
+sentence-transformers==3.3.1
+
+# PDF Processing
+pymupdf==1.24.14
+
+# Content Generation
+python-pptx==1.0.2
+google-api-python-client==2.154.0
+
+# HTTP & Utils
+httpx==0.28.1
+aiosqlite==0.20.0
