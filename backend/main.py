@@ -51,7 +51,7 @@ async def root():
         "service": "VidyaSetu AI",
         "version": "2.0.0",
         "features": [
-            "Real LLM integration (OpenAI GPT-4o-mini)",
+            "Real LLM integration (Groq Llama models)",
             "ChromaDB RAG for textbook Q&A",
             "Multi-agent system (Explainer → Simplifier → Encourager)",
             "PDF text extraction with PyMuPDF",
@@ -73,24 +73,24 @@ async def root():
 @app.get("/health", tags=["Health"])
 async def health_check():
     """Detailed health check"""
-    
-    # Check if OpenAI API key is configured
-    openai_configured = bool(os.getenv("OPENAI_API_KEY"))
+    llm_provider = os.getenv("LLM_PROVIDER", "groq")
+    groq_configured = bool(os.getenv("GROQ_API_KEY"))
     youtube_configured = bool(os.getenv("YOUTUBE_API_KEY"))
-    
+
     # Check if ChromaDB directory exists
     chroma_path = os.getenv("CHROMA_DB_PATH", "./chroma_db")
     chroma_ready = os.path.exists(chroma_path) or True  # Will be created on first use
-    
+
     return {
         "status": "healthy",
         "components": {
-            "openai_llm": "configured" if openai_configured else "missing_api_key",
+            "llm_provider": llm_provider,
+            "groq_llm": "configured" if (llm_provider == "groq" and groq_configured) else "not_configured",
             "chromadb": "ready" if chroma_ready else "not_initialized",
             "youtube_api": "configured" if youtube_configured else "optional_not_configured"
         },
         "warnings": [
-            "OpenAI API key not set - add to .env" if not openai_configured else None,
+            "GROQ_API_KEY not set - add to .env" if (llm_provider == "groq" and not groq_configured) else None,
             "YouTube API key not set - video search will fail" if not youtube_configured else None
         ]
     }
@@ -111,9 +111,10 @@ if __name__ == "__main__":
     print("="*60 + "\n")
     
     # Check for required environment variables
-    if not os.getenv("OPENAI_API_KEY"):
-        print("⚠️  WARNING: OPENAI_API_KEY not set in .env file!")
-        print("   LLM features will not work. Add your API key to .env\n")
+    llm_provider = os.getenv("LLM_PROVIDER", "groq")
+    if llm_provider == "groq" and not os.getenv("GROQ_API_KEY"):
+        print("⚠️  WARNING: GROQ_API_KEY not set in .env file!")
+        print("   Groq LLM features will not work. Add your GROQ_API_KEY to .env\n")
     
     uvicorn.run(
         "main:app",
