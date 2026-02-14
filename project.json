@@ -1,0 +1,17 @@
+{
+  "name": "vidyasetu-ai",
+  "displayName": "VidyaSetu AI - Hackathon Build",
+  "description": "Complete frontend + backend setup for VidyaSetu AI Educational Chatbot",
+  "version": "1.0.0",
+  "tasks": {
+    "start-all": "Start both frontend and backend servers",
+    "start-backend": "Start FastAPI backend server",
+    "start-frontend": "Start Vite frontend dev server",
+    "install-all": "Install all dependencies"
+  },
+  "scripts": {
+    "start-all": "concurrently \"npm run start-backend\" \"npm run dev\" --names \"BACKEND,FRONTEND\" --prefix-colors \"blue,green\"",
+    "start-backend": "cd backend && python main.py",
+    "install-all": "npm install && cd backend && pip install -r requirements.txt && cd .."
+  }
+}
