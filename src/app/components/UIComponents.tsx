@@ -8,7 +8,7 @@ export function cn(...inputs: ClassValue[]) {
 
 export const GlassCard = ({ children, className }: { children: React.ReactNode; className?: string }) => (
   <div className={cn(
-    "bg-white/5 border border-white/10 backdrop-blur-xl rounded-[32px] shadow-2xl",
+    "bg-popover/5 border border-border backdrop-blur-xl rounded-[32px] shadow-2xl text-foreground",
     className
   )}>
     {children}
@@ -25,7 +25,7 @@ export const Button = ({ children, variant = 'primary', className, ...props }: a
   return (
     <button 
       className={cn(
-        "px-8 py-4 rounded-full font-nunito font-bold text-white transition-all active:scale-95 disabled:opacity-50",
+        "px-8 py-4 rounded-full font-nunito font-bold text-primary-foreground transition-all active:scale-95 disabled:opacity-50",
         variants[variant as keyof typeof variants],
         className
       )}
@@ -39,13 +39,13 @@ export const Button = ({ children, variant = 'primary', className, ...props }: a
 export const Input = ({ icon: Icon, className, ...props }: any) => (
   <div className="relative group">
     {Icon && (
-      <div className="absolute left-6 top-1/2 -translate-y-1/2 text-white/50 group-focus-within:text-[#8B5CF6] transition-colors">
+      <div className="absolute left-6 top-1/2 -translate-y-1/2 text-muted-foreground/50 group-focus-within:text-primary transition-colors">
         <Icon size={20} />
       </div>
     )}
     <input
       className={cn(
-        "w-full bg-[#1E2A3A] border border-white/10 rounded-full px-14 py-4 text-white placeholder:text-[#94A3B8] focus:outline-hidden focus:border-[#8B5CF6] focus:ring-2 focus:ring-[#8B5CF6]/20 transition-all",
+        "w-full bg-input-background border border-border rounded-full px-14 py-4 text-foreground placeholder:text-muted-foreground focus:outline-hidden focus:border-ring focus:ring-ring/20 transition-all",
         !Icon && "px-8",
         className
       )}

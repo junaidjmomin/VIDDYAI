@@ -15,8 +15,10 @@ from routers.auth import get_students_db
 
 router = APIRouter()
 
-# In-memory textbook metadata storage
-textbooks_db = {}
+from core.database import db
+
+# In-memory session cache
+textbooks_cache = {}
 
 # Upload directory
 UPLOAD_DIR = os.getenv("UPLOAD_DIR", "./uploads")
@@ -33,7 +35,7 @@ class TextbookStatus(BaseModel):
     message: str
 
 
-@router.post("/api/textbook/upload")
+@router.post("/upload")
 async def upload_textbook(
     file: UploadFile = File(...),
     student_id: str = Form(...),
@@ -72,6 +74,7 @@ async def upload_textbook(
     textbook_id = str(uuid.uuid4())
     
     # Save to temp file for processing
+    tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
             tmp.write(file_content)
@@ -99,7 +102,7 @@ async def upload_textbook(
     
     finally:
         # Clean up temp file
-        if os.path.exists(tmp_path):
+        if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
     
     # Store metadata
@@ -116,7 +119,8 @@ async def upload_textbook(
         "file_path": permanent_path
     }
     
-    textbooks_db[textbook_id] = textbook_metadata
+    textbooks_cache[textbook_id] = textbook_metadata
+    db.save_textbook(textbook_metadata)
     
     # Update student profile
     profile = students_db[student_id]
@@ -124,6 +128,9 @@ async def upload_textbook(
     profile["textbook_id"] = textbook_id
     profile["xp"] += 10  # Reward for uploading textbook
     profile["level"] = (profile["xp"] // 50) + 1
+    
+    # Persist updated profile
+    db.save_student(profile)
     
     return {
         "success": True,
@@ -136,15 +143,18 @@ async def upload_textbook(
     }
 
 
-@router.get("/api/textbook/status/{textbook_id}")
+@router.get("/status/{textbook_id}")
 async def get_textbook_status(textbook_id: str):
     """
     Check processing status of an uploaded textbook
     """
-    if textbook_id not in textbooks_db:
-        raise HTTPException(status_code=404, detail="Textbook not found")
+    if textbook_id not in textbooks_cache:
+        metadata = db.get_textbook(textbook_id)
+        if not metadata:
+            raise HTTPException(status_code=404, detail="Textbook not found")
+        textbooks_cache[textbook_id] = metadata
     
-    metadata = textbooks_db[textbook_id]
+    metadata = textbooks_cache[textbook_id]
     
     return {
         "success": True,
@@ -157,7 +167,7 @@ async def get_textbook_status(textbook_id: str):
     }
 
 
-@router.get("/api/textbook/student/{student_id}")
+@router.get("/student/{student_id}")
 async def get_student_textbooks(student_id: str):
     """
     Get all textbooks for a student
@@ -167,11 +177,8 @@ async def get_student_textbooks(student_id: str):
     if student_id not in students_db:
         raise HTTPException(status_code=404, detail="Student not found")
     
-    # Find all textbooks for this student
-    student_textbooks = [
-        metadata for metadata in textbooks_db.values()
-        if metadata["student_id"] == student_id
-    ]
+    # Find all textbooks for this student (combine cache and DB)
+    student_textbooks = db.get_textbooks(student_id)
     
     return {
         "success": True,
@@ -181,17 +188,20 @@ async def get_student_textbooks(student_id: str):
     }
 
 
-@router.delete("/api/textbook/{textbook_id}")
+@router.delete("/{textbook_id}")
 async def delete_textbook(textbook_id: str, student_id: str):
     """
     Delete a textbook and its ChromaDB collection
     """
     students_db = get_students_db()
     
-    if textbook_id not in textbooks_db:
-        raise HTTPException(status_code=404, detail="Textbook not found")
+    if textbook_id not in textbooks_cache:
+        metadata = db.get_textbook(textbook_id)
+        if not metadata:
+            raise HTTPException(status_code=404, detail="Textbook not found")
+        textbooks_cache[textbook_id] = metadata
     
-    metadata = textbooks_db[textbook_id]
+    metadata = textbooks_cache[textbook_id]
     
     # Verify ownership
     if metadata["student_id"] != student_id:
@@ -205,14 +215,17 @@ async def delete_textbook(textbook_id: str, student_id: str):
     if os.path.exists(metadata["file_path"]):
         os.remove(metadata["file_path"])
     
-    # Remove metadata
-    del textbooks_db[textbook_id]
+    # Remove from cache and DB
+    if textbook_id in textbooks_cache:
+        del textbooks_cache[textbook_id]
+    db.delete_textbook(textbook_id)
     
     # Update student profile
     profile = students_db[student_id]
     profile["textbook_uploaded"] = False
     if "textbook_id" in profile:
         del profile["textbook_id"]
+    db.save_student(profile)
     
     return {
         "success": True,

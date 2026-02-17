@@ -8,8 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
 
-# Import routers
-from routers import auth, profile, chat, ingest, feedback, generate
+# Import routers - delayed to avoid pydantic multiprocessing issues
+# from routers import auth, profile, chat, ingest, feedback, generate
 
 # Load environment variables
 load_dotenv()
@@ -21,25 +21,32 @@ app = FastAPI(
     description="Production-ready AI educational chatbot with LLM, RAG, and multi-agent system"
 )
 
-# Get CORS origins from environment
-cors_origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
-
-# CORS middleware
+# CORS middleware - permissive for local discovery and multiple dev ports
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
+    allow_origins=["*"],  # Allow all origins for local development to avoid CORS blocks
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Include all routers
-app.include_router(auth.router, tags=["Authentication"])
-app.include_router(profile.router, tags=["Profile & Games"])
-app.include_router(chat.router, tags=["Chat & AI"])
-app.include_router(ingest.router, tags=["Textbook Upload"])
-app.include_router(feedback.router, tags=["Feedback & Analytics"])
-app.include_router(generate.router, tags=["Content Generation"])
+@app.on_event("startup")
+async def startup_event():
+    """Load routers after app initialization to avoid pydantic import issues"""
+    try:
+        from routers import auth, profile, chat, ingest, feedback, generate
+        
+        app.include_router(auth.router, prefix="/api", tags=["Authentication"])
+        app.include_router(profile.router, prefix="/api/profile", tags=["Profile & Games"])
+        app.include_router(chat.router, prefix="/api/chat", tags=["Chat & AI"])
+        app.include_router(ingest.router, prefix="/api/textbook", tags=["Textbook Upload"])
+        app.include_router(feedback.router, prefix="/api", tags=["Feedback & Analytics"])
+        app.include_router(generate.router, prefix="/api", tags=["Content Generation"])
+        print("✅ All routers loaded and included successfully")
+    except Exception as e:
+        print(f"❌ ERROR DURING ROUTER LOAD: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 # Root health check endpoint
@@ -120,7 +127,7 @@ if __name__ == "__main__":
         "main:app",
         host=host,
         port=port,
-        reload=True,  # Auto-reload on code changes (disable in production)
+        reload=False,  # Disabled to avoid pydantic multiprocessing issues
         log_level="info"
     )
 

@@ -1,7 +1,4 @@
-/**
- * VidyaSetu AI - API Client
- * Handles all API calls to the FastAPI backend
- */
+import type { StudentProfile } from '../store/useAppStore';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -13,9 +10,10 @@ export interface LoginData {
 
 export interface GameResultData {
   student_id: string;
-  game_type: 'pattern' | 'memory' | 'emotion';
+  game_type: string;
   score: number;
   time_taken: number;
+  is_dynamic?: boolean;
 }
 
 export interface FeedbackData {
@@ -23,6 +21,51 @@ export interface FeedbackData {
   message_id: string;
   feedback_type: 'thumbs_up' | 'thumbs_down';
   timestamp: string;
+}
+
+export interface LoginResponse {
+  success: boolean;
+  profile: StudentProfile;
+  message?: string;
+}
+
+export interface GameSubmitResponse {
+  success: boolean;
+  xp_earned: number;
+  total_xp: number;
+  level: number;
+  confidence_band: string;
+  iq_avg: number;
+  eq_avg: number;
+  profile: StudentProfile;
+}
+
+export interface ChallengeResponse {
+  success: boolean;
+  challenge: {
+    question: string;
+    options: string[];
+    correct: string;
+    explanation: string;
+    trait: string;
+  };
+}
+
+export interface UploadResponse {
+  success: boolean;
+  chunks_indexed: number;
+  textbook_id?: string;
+}
+
+export interface VideoResponse {
+  success: boolean;
+  video_id: string;
+  embed_url: string;
+  watch_url: string;
+  title: string;
+  thumbnail: string;
+  description: string;
+  message?: string;
 }
 
 class APIClient {
@@ -37,7 +80,7 @@ class APIClient {
     options: RequestInit = {}
   ): Promise<T> {
     const url = `${this.baseURL}${endpoint}`;
-    
+
     const config: RequestInit = {
       ...options,
       headers: {
@@ -48,32 +91,56 @@ class APIClient {
 
     try {
       const response = await fetch(url, config);
-      
+
       if (!response.ok) {
         const error = await response.json().catch(() => ({}));
-        throw new Error(error.detail || `HTTP error! status: ${response.status}`);
+        let message = `HTTP error! status: ${response.status}`;
+
+        if (error.detail) {
+          if (Array.isArray(error.detail)) {
+            message = error.detail.map((d: any) => `${d.loc.join('.')}: ${d.msg}`).join(', ');
+          } else if (typeof error.detail === 'string') {
+            message = error.detail;
+          } else {
+            message = JSON.stringify(error.detail);
+          }
+        }
+
+        throw new Error(message);
       }
 
       return await response.json();
-    } catch (error) {
-      console.error('API request failed:', error);
+    } catch (error: any) {
+      console.error('API request failed:', error.message || error);
       throw error;
     }
   }
 
   // Authentication
-  async login(data: LoginData) {
-    return this.request('/api/login', {
+  async login(data: LoginData): Promise<LoginResponse> {
+    return this.request<LoginResponse>('/api/login', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
   // Profile & Games
-  async submitGameResult(data: GameResultData) {
-    return this.request('/api/profile/games/submit', {
+  async submitGameResult(data: GameResultData): Promise<GameSubmitResponse> {
+    return this.request<GameSubmitResponse>('/api/profile/games/submit', {
       method: 'POST',
       body: JSON.stringify(data),
+    });
+  }
+
+  async generateDynamicChallenge(studentId: string, subject: string, grade: number, type: 'iq' | 'eq' | 'concept'): Promise<ChallengeResponse> {
+    return this.request<ChallengeResponse>('/api/profile/game/generate', {
+      method: 'POST',
+      body: JSON.stringify({
+        student_id: studentId,
+        subject: subject,
+        grade: grade,
+        challenge_type: type
+      }),
     });
   }
 
@@ -82,11 +149,14 @@ class APIClient {
   }
 
   // Textbook Upload
-  async uploadTextbook(file: File, studentId: string, subject: string) {
+  async uploadTextbook(file: File, studentId: string, subject: string, grade: number): Promise<UploadResponse> {
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('student_id', studentId);
+    formData.append('subject', subject);
+    formData.append('grade', grade.toString());
 
-    const url = `${this.baseURL}/api/textbook/upload?student_id=${studentId}&subject=${subject}`;
+    const url = `${this.baseURL}/api/textbook/upload`;
 
     const response = await fetch(url, {
       method: 'POST',
@@ -94,7 +164,8 @@ class APIClient {
     });
 
     if (!response.ok) {
-      throw new Error(`Upload failed: ${response.statusText}`);
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || `Upload failed: ${response.statusText}`);
     }
 
     return await response.json();
@@ -128,18 +199,26 @@ class APIClient {
   }
 
   // Content Generation
-  async generatePPT(studentId: string, message: string) {
+  async generatePPT(concept: string, grade: number, subject: string, keyPoints: string[]) {
     return this.request('/api/generate/ppt', {
       method: 'POST',
       body: JSON.stringify({
-        student_id: studentId,
-        message: message,
+        concept: concept,
+        grade: grade,
+        subject: subject,
+        key_points: keyPoints,
+        include_activity: true
       }),
     });
   }
 
-  async searchVideos(topic: string, grade: number = 3) {
-    return this.request(`/api/video/search?topic=${encodeURIComponent(topic)}&grade=${grade}`);
+  async searchVideos(concept: string, grade: number = 3, subject: string = 'Science'): Promise<VideoResponse> {
+    const params = new URLSearchParams({
+      concept: concept,
+      grade: grade.toString(),
+      subject: subject
+    });
+    return this.request<VideoResponse>(`/api/video/search?${params.toString()}`);
   }
 
   // Health Check

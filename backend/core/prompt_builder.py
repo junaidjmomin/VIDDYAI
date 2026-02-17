@@ -113,7 +113,22 @@ def build_system_prompt(profile: Dict[str, Any], context: str) -> str:
         4: "Use grade-appropriate vocabulary. Define scientific terms clearly.",
         5: "Use proper terminology but always explain it in simpler words too."
     }
-    vocab_guide = vocab_guides.get(grade, vocab_guides[3])
+    
+    # Adaptive "Dumbing Down" based on IQ/EQ assessment
+    iq_avg = sum(profile.get("iq_scores", {}).values()) / len(profile.get("iq_scores", {})) if profile.get("iq_scores") else 70
+    eq_avg = sum(profile.get("eq_scores", {}).values()) / len(profile.get("eq_scores", {})) if profile.get("eq_scores") else 70
+    
+    effective_grade = grade
+    if iq_avg < 40 or eq_avg < 40:
+        effective_grade = max(1, grade - 1)
+        complexity_note = "DUMB DOWN: The student is struggling. Use extremely simple analogies and avoid any academic jargon. Speak like a very patient kindergarten teacher."
+    elif iq_avg > 85:
+        effective_grade = min(5, grade + 1)
+        complexity_note = "CHALLENGE: The student is very bright. Use sophisticated analogies and introduce high-level concepts gently."
+    else:
+        complexity_note = "Standard grade-level complexity."
+        
+    vocab_guide = vocab_guides.get(effective_grade, vocab_guides[3]) + " " + complexity_note
     
     # Assemble final prompt
     system_prompt = f"""You are Viddy 🦉, a friendly AI learning companion for a Grade {grade} CBSE student in India.

@@ -8,6 +8,13 @@ from pydantic import BaseModel
 from typing import Dict, Any, Optional
 from datetime import datetime
 from routers.auth import get_students_db
+from core.database import db
+import core.agents as agents
+from core.config import Config
+from core.fallbacks import get_random_fallback
+from langchain_core.messages import SystemMessage, HumanMessage
+import json
+import asyncio
 
 router = APIRouter()
 
@@ -16,11 +23,18 @@ class GameResult(BaseModel):
     student_id: str
     game_type: str  # 'math', 'logical_reasoning', 'pattern_recognition', 'empathy', etc.
     score: float  # 0-100
-    time_taken: int  # seconds
+    time_taken: float  # seconds
     answers: Optional[Dict[str, Any]] = None
+    is_dynamic: bool = False
+
+class DynamicChallengeRequest(BaseModel):
+    student_id: str
+    subject: str
+    grade: int
+    challenge_type: str  # 'iq', 'eq', 'concept'
 
 
-@router.post("/api/profile/games/submit")
+@router.post("/games/submit")
 async def submit_game_result(result: GameResult):
     """
     Submit game result and update student profile
@@ -37,12 +51,26 @@ async def submit_game_result(result: GameResult):
     profile = students_db[result.student_id]
     
     # Update appropriate scores
-    if result.game_type in profile["iq_scores"]:
-        profile["iq_scores"][result.game_type] = result.score
-    elif result.game_type in profile["eq_scores"]:
-        profile["eq_scores"][result.game_type] = result.score
+    target_score_key = result.game_type
+    
+    # Normalize keys if needed
+    if target_score_key == "logic": target_score_key = "logical_reasoning"
+    if target_score_key == "pattern": target_score_key = "pattern_recognition"
+    if target_score_key == "reasoning": target_score_key = "logical_reasoning"
+    
+    if target_score_key in profile["iq_scores"]:
+        profile["iq_scores"][target_score_key] = result.score
+    elif target_score_key in profile["eq_scores"]:
+        profile["eq_scores"][target_score_key] = result.score
+    elif result.game_type == "concept_challenge":
+        # XP only for generic concepts
+        pass
     else:
-        raise HTTPException(status_code=400, detail=f"Unknown game type: {result.game_type}")
+        # Just use math as fallback for iq if it's dynamic
+        if "iq" in result.game_type.lower():
+            profile["iq_scores"]["logical_reasoning"] = result.score
+        elif "eq" in result.game_type.lower():
+            profile["eq_scores"]["empathy"] = result.score
     
     # Calculate average scores
     iq_avg = sum(profile["iq_scores"].values()) / len(profile["iq_scores"]) if profile["iq_scores"] else 0
@@ -83,6 +111,9 @@ async def submit_game_result(result: GameResult):
         "timestamp": datetime.now().isoformat()
     })
     
+    # Persist profile
+    db.save_student(profile)
+    
     return {
         "success": True,
         "message": f"Game completed! You earned {xp_earned} XP! ⭐",
@@ -96,7 +127,76 @@ async def submit_game_result(result: GameResult):
     }
 
 
-@router.get("/api/profile/{student_id}/stats")
+@router.post("/game/generate")
+async def generate_dynamic_challenge(data: DynamicChallengeRequest):
+    """
+    Generate a dynamic IQ/EQ/Concept challenge using Groq
+    """
+    # 1. Check if configured — if not, return fallback INSTANTLY (zero loading time)
+    if not Config.is_llm_configured():
+        print(f"Using instant fallback for {data.subject} (Groq not configured)")
+        return {
+            "success": True,
+            "challenge": get_random_fallback(data.subject, data.challenge_type),
+            "is_fallback": True
+        }
+
+    agents._ensure_llms()
+    llm = agents.fast_llm
+    
+    if llm is None:
+        return {
+            "success": True,
+            "challenge": get_random_fallback(data.subject, data.challenge_type),
+            "is_fallback": True
+        }
+    
+    system_prompt = f"""You are an educational psychologist creating a quick assessment for a Grade {data.grade} student in India.
+    
+    TASK: Create a single multiple-choice question to assess the student's {data.challenge_type} level in the context of {data.subject}.
+    
+    IQ Categories: math, logical_reasoning, pattern_recognition
+    EQ Categories: empathy, self_awareness, social_skills
+    
+    RULES:
+    - Language: Grade {data.grade} appropriate (super simple).
+    - Format: JSON ONLY.
+    - Fields: "question", "options" (list of 4), "correct" (string matching one option), "explanation", "trait" (must be one of the 6 categories above).
+    """
+
+    try:
+        # Use a 10-second timeout for the LLM call
+        response = await asyncio.wait_for(
+            agents.fast_llm.ainvoke([
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=f"Create a {data.challenge_type} challenge for a Grade {data.grade} student about {data.subject}.")
+            ]),
+            timeout=10.0
+        )
+        
+        # Parse JSON from response
+        content = response.content
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0].strip()
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0].strip()
+            
+        challenge = json.loads(content)
+        return {
+            "success": True,
+            "challenge": challenge
+        }
+    except Exception as e:
+        print(f"Dynamic challenge error: {e}")
+        # Return a high-quality fallback immediately
+        return {
+            "success": True,
+            "challenge": get_random_fallback(data.subject, data.challenge_type),
+            "is_fallback": True
+        }
+
+
+@router.get("/{student_id}/stats")
 async def get_student_stats(student_id: str):
     """
     Get student statistics and game history
@@ -129,3 +229,10 @@ async def get_student_stats(student_id: str):
             "game_history": profile.get("game_history", [])
         }
     }
+@router.get("/{student_id}")
+async def get_profile(student_id: str):
+    """Get full student profile"""
+    students_db = get_students_db()
+    if student_id not in students_db:
+        raise HTTPException(status_code=404, detail="Student not found")
+    return students_db[student_id]

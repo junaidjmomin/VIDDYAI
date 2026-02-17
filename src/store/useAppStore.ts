@@ -37,32 +37,32 @@ export interface AppState {
   // Student state
   student: StudentProfile | null;
   setStudent: (student: StudentProfile) => void;
-  
+
   // Chat state
   messages: ChatMessage[];
   addMessage: (message: ChatMessage) => void;
   clearMessages: () => void;
   toggleThought: (messageId: string) => void;
-  
+
   // UI state
   isLoading: boolean;
   setIsLoading: (loading: boolean) => void;
   currentScreen: 'welcome' | 'game' | 'upload' | 'chat';
   setCurrentScreen: (screen: 'welcome' | 'game' | 'upload' | 'chat') => void;
-  
+
   // Upload state
   isUploading: boolean;
   uploadProgress: number;
   setIsUploading: (uploading: boolean) => void;
-  setUploadProgress: (progress: number) => void;
-  
+  setUploadProgress: (progress: number | ((prev: number) => number)) => void;
+
   // XP and game state
   addXp: (amount: number) => void;
-  
+
   // Theme
   theme: 'dark' | 'light';
   toggleTheme: () => void;
-  
+
   // Reset
   reset: () => void;
 }
@@ -78,17 +78,17 @@ export const useAppStore = create<AppState>()(
       isUploading: false,
       uploadProgress: 0,
       theme: 'dark',
-      
+
       // Student actions
       setStudent: (student) => set({ student }),
-      
+
       // Chat actions
       addMessage: (message) => set((state) => ({
         messages: [...state.messages, message]
       })),
-      
+
       clearMessages: () => set({ messages: [] }),
-      
+
       toggleThought: (messageId) => set((state) => ({
         messages: state.messages.map(msg =>
           msg.id === messageId
@@ -96,22 +96,24 @@ export const useAppStore = create<AppState>()(
             : msg
         )
       })),
-      
+
       // UI actions
       setIsLoading: (loading) => set({ isLoading: loading }),
       setCurrentScreen: (screen) => set({ currentScreen: screen }),
-      
+
       // Upload actions
       setIsUploading: (uploading) => set({ isUploading: uploading }),
-      setUploadProgress: (progress) => set({ uploadProgress: progress }),
-      
+      setUploadProgress: (progress) => set((state) => ({
+        uploadProgress: typeof progress === 'function' ? progress(state.uploadProgress) : progress
+      })),
+
       // XP action
       addXp: (amount) => set((state) => ({
         student: state.student
           ? { ...state.student, xp: state.student.xp + amount }
           : null
       })),
-      
+
       // Theme action
       toggleTheme: () => set((state) => {
         const newTheme = state.theme === 'dark' ? 'light' : 'dark';
@@ -120,7 +122,7 @@ export const useAppStore = create<AppState>()(
         document.documentElement.classList.toggle('light', newTheme === 'light');
         return { theme: newTheme };
       }),
-      
+
       // Reset
       reset: () => set({
         student: null,

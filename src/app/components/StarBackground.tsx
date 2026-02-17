@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { motion } from 'motion/react';
+import { motion } from 'framer-motion';
 
 export const StarBackground = ({ children }: { children: React.ReactNode }) => {
   const stars = useMemo(() => {
@@ -14,7 +14,7 @@ export const StarBackground = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   return (
-    <div className="relative min-h-screen w-full overflow-hidden bg-[#0A0E1A] font-inter text-[#F1F5F9]">
+    <div className="relative min-h-screen w-full overflow-hidden bg-background font-inter text-foreground">
       {/* Nebula blobs */}
       <div className="absolute top-[-10%] left-[-10%] w-[400px] h-[400px] rounded-full bg-purple-600/10 blur-[100px]" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] rounded-full bg-cyan-600/10 blur-[120px]" />

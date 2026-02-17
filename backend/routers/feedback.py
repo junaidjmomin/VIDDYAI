@@ -24,7 +24,7 @@ class FeedbackData(BaseModel):
     metadata: Optional[Dict[str, Any]] = None
 
 
-@router.post("/api/feedback")
+@router.post("/feedback")
 async def log_feedback(data: FeedbackData):
     """
     Log user feedback (thumbs up/down, star ratings, comments)
@@ -66,7 +66,7 @@ async def log_feedback(data: FeedbackData):
     }
 
 
-@router.get("/api/feedback/{student_id}")
+@router.get("/feedback/{student_id}")
 async def get_student_feedback(student_id: str):
     """
     Get all feedback for a student
@@ -86,7 +86,7 @@ async def get_student_feedback(student_id: str):
     }
 
 
-@router.get("/api/satisfaction/{student_id}")
+@router.get("/satisfaction/{student_id}")
 async def get_satisfaction_chart(student_id: str, days: int = 7):
     """
     Get satisfaction trend data for charts
@@ -167,7 +167,7 @@ async def get_satisfaction_chart(student_id: str, days: int = 7):
     }
 
 
-@router.get("/api/analytics/{student_id}")
+@router.get("/analytics/{student_id}")
 async def get_analytics(student_id: str):
     """
     Get comprehensive analytics for a student

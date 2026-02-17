@@ -1,0 +1,13 @@
+OK: core.config
+OK: core.database
+OK: core.rag
+OK: core.ingestion
+OK: core.agents
+OK: core.prompt_builder
+OK: core.fallbacks
+OK: routers.auth
+OK: routers.profile
+OK: routers.chat
+OK: routers.ingest
+OK: routers.feedback
+OK: routers.generate

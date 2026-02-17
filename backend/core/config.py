@@ -18,6 +18,12 @@ class Config:
     CHROMA_DB_PATH = os.getenv("CHROMA_DB_PATH", "./chroma_db")
 
     @classmethod
+    def is_llm_configured(cls):
+        if not cls.GROQ_API_KEY or "your_groq_key" in cls.GROQ_API_KEY.lower():
+            return False
+        return True
+
+    @classmethod
     def get_heavy_llm(cls):
         if cls.LLM_PROVIDER == "groq":
             from langchain_groq import ChatGroq

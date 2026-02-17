@@ -36,7 +36,7 @@ class PPTRequest(BaseModel):
     include_activity: bool = True
 
 
-@router.post("/api/generate/ppt")
+@router.post("/generate/ppt")
 async def generate_ppt(data: PPTRequest):
     """
     Generate a PowerPoint presentation for a concept
@@ -182,7 +182,7 @@ async def generate_ppt(data: PPTRequest):
     )
 
 
-@router.get("/api/video/search")
+@router.get("/video/search")
 async def search_video(concept: str, grade: int, subject: str = "Science"):
     """
     Search for educational videos on YouTube
@@ -279,7 +279,7 @@ async def search_video(concept: str, grade: int, subject: str = "Science"):
         }
 
 
-@router.get("/api/video/embed/{video_id}")
+@router.get("/video/embed/{video_id}")
 async def get_video_embed(video_id: str):
     """
     Get embed URL and metadata for a specific YouTube video

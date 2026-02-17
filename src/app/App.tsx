@@ -1,16 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { StarBackground } from './components/StarBackground';
 import { ViddyAvatar } from './components/ViddyAvatar';
 import { ThemeToggle } from './components/ThemeToggle';
 import { GlassCard, Button, Input, cn } from './components/UIComponents';
-import { 
-  Rocket, 
-  BookOpen, 
-  Calculator, 
-  FlaskConical, 
-  Languages, 
-  Globe, 
+import {
+  Rocket,
+  BookOpen,
+  Calculator,
+  FlaskConical,
+  Languages,
+  Globe,
   Star,
   ChevronRight,
   Upload,
@@ -23,7 +23,9 @@ import {
   ShieldCheck,
   ThumbsUp,
   ThumbsDown,
-  Layout
+  Layout,
+  Download,
+  PlayCircle
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip } from 'recharts';
@@ -33,6 +35,16 @@ import api from '../api/client';
 
 // --- Types ---
 type Screen = 'welcome' | 'game' | 'upload' | 'chat';
+
+interface Message {
+  id: string;
+  role: 'user' | 'ai';
+  content: string;
+  timestamp: string;
+  thoughtExpanded?: boolean;
+  agentSteps?: { agent: string; action: string }[];
+  safety_verified?: boolean;
+}
 
 const SUBJECTS: { id: Subject; name: string; icon: any; color: string; gradient: string }[] = [
   { id: 'Math', name: 'Math', icon: Calculator, color: '#8B5CF6', gradient: 'from-[#1E1040] to-[#2D1B69]' },
@@ -51,15 +63,71 @@ const MOCK_CHART_DATA = [
   { name: 'Sat', score: 92 },
 ];
 
+
+
 // --- Main App Component ---
 export default function App() {
-  const { 
-    student, 
-    currentScreen, 
-    setCurrentScreen, 
-    theme 
+  const {
+    student,
+    currentScreen,
+    setCurrentScreen,
+    theme
   } = useAppStore();
-  
+
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [inputValue, setInputValue] = useState('');
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [currentStreamingMessage, setCurrentStreamingMessage] = useState('');
+  const [showConfetti, setShowConfetti] = useState(false);
+
+  // Real Data State
+  const [videoData, setVideoData] = useState<any>(null); // To store YouTube result
+  const [visuals, setVisuals] = useState<any[]>([]); // To store PPT download links
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Derived subject
+  const subject = student?.subject || 'Science';
+
+  const fetchRelatedMedia = async (topic: string) => {
+    try {
+      // 1. Search Video
+      const video = await api.searchVideos(topic, student?.grade || 3, subject);
+      if (video.success) {
+        setVideoData(video);
+      } else {
+        setVideoData(null);
+      }
+
+      // 2. Setup placeholders for PPTs
+      setVisuals([
+        { id: 1, title: `${topic} Basics`, ready: false },
+        { id: 2, title: `${topic} Advanced`, ready: false }
+      ]);
+    } catch (e) {
+      console.error("Media fetch failed", e);
+    }
+  };
+
+  const handleGeneratePPT = async (visualIndex: number) => {
+    const topic = visuals[visualIndex].title;
+    toast.promise(
+      api.generatePPT(topic, student?.grade || 3, subject, [`Learn about ${topic}`, `Key concepts of ${topic}`, `Summary`]),
+      {
+        loading: 'Generating your presentation...',
+        success: 'Presentation ready!',
+        error: 'Generation failed'
+      }
+    );
+  };
+
+  // Fetch relevant media when subject changes or on load
+  useEffect(() => {
+    if (currentScreen === 'chat' && subject) {
+      fetchRelatedMedia(subject);
+    }
+  }, [currentScreen, subject]);
+
   const [userName, setUserName] = useState('');
   const [selectedGrade, setSelectedGrade] = useState(3);
   const [selectedSubject, setSelectedSubject] = useState<Subject>('Math');
@@ -76,7 +144,7 @@ export default function App() {
       <Toaster position="top-center" />
       <AnimatePresence mode="wait">
         {currentScreen === 'welcome' && (
-          <WelcomeScreen 
+          <WelcomeScreen
             key="welcome"
             userName={userName}
             setUserName={setUserName}
@@ -88,24 +156,30 @@ export default function App() {
           />
         )}
         {currentScreen === 'game' && (
-          <GameScreen 
+          <GameScreen
             key="game"
             subject={selectedSubject}
             onComplete={() => setCurrentScreen('upload')}
+            onBack={() => setCurrentScreen('welcome')}
           />
         )}
         {currentScreen === 'upload' && (
-          <UploadScreen 
+          <UploadScreen
             key="upload"
             subject={selectedSubject}
             onComplete={() => setCurrentScreen('chat')}
+            onBack={() => setCurrentScreen('game')}
           />
         )}
         {currentScreen === 'chat' && (
-          <ChatScreen 
+          <ChatScreen
             key="chat"
             userName={userName}
             subject={selectedSubject}
+            visuals={visuals}
+            videoData={videoData}
+            onGeneratePPT={handleGeneratePPT}
+            onFetchMedia={fetchRelatedMedia}
             onBack={() => setCurrentScreen('upload')}
           />
         )}
@@ -117,7 +191,7 @@ export default function App() {
 // --- Screens ---
 
 function WelcomeScreen({ userName, setUserName, selectedGrade, setSelectedGrade, selectedSubject, setSelectedSubject, onStart }: any) {
-  const { setStudent, setIsLoading } = useAppStore();
+  const { student, setStudent, setIsLoading, setCurrentScreen } = useAppStore();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleStart = async () => {
@@ -134,7 +208,7 @@ function WelcomeScreen({ userName, setUserName, selectedGrade, setSelectedGrade,
         name: userName,
         grade: selectedGrade,
         subject: selectedSubject
-      }) as any;
+      });
 
       if (response.success) {
         setStudent(response.profile);
@@ -151,7 +225,7 @@ function WelcomeScreen({ userName, setUserName, selectedGrade, setSelectedGrade,
   };
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, scale: 0.9 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.9 }}
@@ -161,24 +235,24 @@ function WelcomeScreen({ userName, setUserName, selectedGrade, setSelectedGrade,
         <div className="flex justify-center mb-6">
           <ViddyAvatar size={96} />
         </div>
-        
+
         <h1 className="font-nunito text-4xl font-bold text-foreground mb-2 tracking-tight">
           VIDYASETU AI
         </h1>
         <p className="text-muted-foreground text-lg mb-8 font-inter">
           Your Cosmic Learning Companion
         </p>
-        
+
         <div className="w-full h-px bg-border mb-8" />
-        
+
         <div className="space-y-6">
-          <Input 
+          <Input
             icon={Rocket}
             placeholder="What's your name, Explorer?"
             value={userName}
             onChange={(e: any) => setUserName(e.target.value)}
           />
-          
+
           <div className="space-y-4">
             <p className="text-primary font-inter font-medium text-sm tracking-widest uppercase">
               Choose your Grade
@@ -188,18 +262,17 @@ function WelcomeScreen({ userName, setUserName, selectedGrade, setSelectedGrade,
                 <button
                   key={grade}
                   onClick={() => setSelectedGrade(grade)}
-                  className={`w-14 h-14 rounded-full font-nunito font-bold text-xl transition-all duration-300 ${
-                    selectedGrade === grade 
-                      ? "bg-primary text-primary-foreground scale-110 shadow-[0_0_20px_var(--primary)] ring-2 ring-primary/50" 
-                      : "bg-muted text-muted-foreground hover:bg-accent"
-                  }`}
+                  className={`w-14 h-14 rounded-full font-nunito font-bold text-xl transition-all duration-300 ${selectedGrade === grade
+                    ? "bg-primary text-primary-foreground scale-110 shadow-[0_0_20px_var(--primary)] ring-2 ring-primary/50"
+                    : "bg-muted text-muted-foreground hover:bg-accent"
+                    }`}
                 >
                   {grade}
                 </button>
               ))}
             </div>
           </div>
-          
+
           <div className="space-y-4">
             <div className="flex flex-wrap justify-center gap-3">
               {SUBJECTS.map((sub) => {
@@ -208,11 +281,10 @@ function WelcomeScreen({ userName, setUserName, selectedGrade, setSelectedGrade,
                   <button
                     key={sub.id}
                     onClick={() => setSelectedSubject(sub.id)}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-full font-inter text-sm font-medium transition-all ${
-                      selectedSubject === sub.id
-                        ? `bg-primary text-primary-foreground shadow-[0_0_15px_var(--primary)]`
-                        : "bg-muted text-muted-foreground hover:bg-accent"
-                    }`}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-full font-inter text-sm font-medium transition-all ${selectedSubject === sub.id
+                      ? `bg-primary text-primary-foreground shadow-[0_0_15px_var(--primary)]`
+                      : "bg-muted text-muted-foreground hover:bg-accent"
+                      }`}
                   >
                     <Icon size={16} />
                     {sub.name}
@@ -221,16 +293,25 @@ function WelcomeScreen({ userName, setUserName, selectedGrade, setSelectedGrade,
               })}
             </div>
           </div>
-          
-          <Button 
+
+          <Button
             className="w-full mt-4 flex items-center justify-center gap-2"
             onClick={handleStart}
             disabled={!userName || isSubmitting}
           >
             {isSubmitting ? 'Starting...' : 'Begin Your Journey!'} <Star size={18} className="text-yellow-300" />
           </Button>
+
+          {student && (
+            <button
+              onClick={() => setCurrentScreen('chat')}
+              className="mt-4 text-sm text-muted-foreground hover:text-primary transition-colors"
+            >
+              Already logged in? Go to Chat →
+            </button>
+          )}
         </div>
-        
+
         <div className="mt-8 flex items-center justify-center gap-2 text-xs text-muted-foreground">
           <ShieldCheck size={14} />
           Trusted by CBSE schools across India
@@ -240,26 +321,57 @@ function WelcomeScreen({ userName, setUserName, selectedGrade, setSelectedGrade,
   );
 }
 
-function GameScreen({ subject, onComplete }: any) {
+function GameScreen({ subject, onComplete, onBack }: any) {
   const { student, addXp } = useAppStore();
   const currentSubject = SUBJECTS.find(s => s.id === subject) || SUBJECTS[0];
-  const [gameState, setGameState] = useState<'pattern' | 'memory'>('pattern');
+
+
+  const [currentChallenge, setCurrentChallenge] = useState<any>(null);
+  const [challengeCount, setChallengeCount] = useState(0);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [feedback, setFeedback] = useState<'correct' | 'wrong' | null>(null);
   const [startTime, setStartTime] = useState(Date.now());
 
-  const handleAnswer = async (isCorrect: boolean) => {
+  const fetchNewChallenge = async () => {
+    if (!student) return;
+    setIsGenerating(true);
+    try {
+      const types: ('iq' | 'eq' | 'concept')[] = ['iq', 'eq', 'concept'];
+      const type = types[challengeCount % 3];
+      const response = await api.generateDynamicChallenge(student.student_id, subject, student.grade, type);
+      if (response.success) {
+        setCurrentChallenge(response.challenge);
+        setStartTime(Date.now());
+      }
+    } catch (error) {
+      console.error('Failed to generate challenge:', error);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchNewChallenge();
+  }, [challengeCount]);
+
+  const handleAnswer = async (selectedOption: string) => {
+    if (!currentChallenge || feedback) return;
+
+    const isCorrect = selectedOption === currentChallenge.correct;
+
     if (isCorrect) {
       setFeedback('correct');
       const timeTaken = (Date.now() - startTime) / 1000;
-      
+
       // Submit game result to backend
       if (student) {
         try {
           const response = await api.submitGameResult({
             student_id: student.student_id,
-            game_type: gameState,
+            game_type: currentChallenge.trait || 'dynamic',
             score: 100,
-            time_taken: timeTaken
+            time_taken: timeTaken,
+            is_dynamic: true
           });
 
           addXp(response.xp_earned || 15);
@@ -273,9 +385,8 @@ function GameScreen({ subject, onComplete }: any) {
 
       setTimeout(() => {
         setFeedback(null);
-        if (gameState === 'pattern') {
-          setGameState('memory');
-          setStartTime(Date.now());
+        if (challengeCount < 2) { // 3 rounds total
+          setChallengeCount((prev: number) => prev + 1);
         } else {
           onComplete();
         }
@@ -287,7 +398,7 @@ function GameScreen({ subject, onComplete }: any) {
   };
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -295,122 +406,125 @@ function GameScreen({ subject, onComplete }: any) {
     >
       <header className="flex items-center justify-between mb-12">
         <div className="flex items-center gap-4">
-          <button onClick={() => window.location.reload()} className="text-muted-foreground hover:text-foreground">
-            <ArrowLeft />
+          <button
+            onClick={onBack}
+            className="p-2 -ml-2 text-muted-foreground hover:text-foreground transition-all duration-200 hover:scale-110 active:scale-90 flex items-center justify-center rounded-full hover:bg-white/5"
+            title="Go Back"
+          >
+            <ArrowLeft size={28} />
           </button>
           <h2 className="font-nunito text-2xl font-bold">Adventure Zone</h2>
         </div>
-        
+
         <div className="flex items-center gap-8">
           <div className="flex items-center gap-4">
             <div className="w-10 h-10 rounded-full bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.4)] flex items-center justify-center">
-              <CheckCircle2 size={20} className="text-white" />
+              <CheckCircle2 size={20} className="text-card-foreground" />
             </div>
             <div className="w-8 h-px bg-border" />
-            <motion.div 
+            <motion.div
               animate={{ scale: [1, 1.1, 1] }}
               transition={{ duration: 2, repeat: Infinity }}
-              className={`w-12 h-12 rounded-full bg-[${currentSubject.color}] ring-4 ring-primary/20 flex items-center justify-center`}
+              className="w-12 h-12 rounded-full ring-4 ring-primary/20 flex items-center justify-center"
+              style={{ backgroundColor: currentSubject.color }}
             >
-              <currentSubject.icon size={24} className="text-white" />
+              {currentSubject.icon && <currentSubject.icon size={24} className="text-card-foreground" />}
             </motion.div>
             <div className="w-8 h-px bg-border" />
             <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
               <Star size={20} className="text-muted-foreground" />
             </div>
           </div>
-          
-          <div className="flex items-center gap-2 bg-yellow-500/10 px-4 py-2 rounded-full border border-yellow-500/20">
-            <Star size={18} className="text-yellow-500" fill="#EAB308" />
-            <span className="font-nunito font-bold text-yellow-500 text-xl">{student?.xp || 1240}</span>
+
+          <div className="flex items-center gap-6">
+            <button
+              onClick={onComplete}
+              className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
+            >
+              Skip to Upload <ChevronRight size={16} />
+            </button>
+
+            <div className="flex items-center gap-2 bg-yellow-500/10 px-4 py-2 rounded-full border border-yellow-500/20">
+              <Star size={18} className="text-yellow-500" fill="#EAB308" />
+              <span className="font-nunito font-bold text-yellow-500 text-xl">{student?.xp || 1240}</span>
+            </div>
           </div>
         </div>
       </header>
-      
+
       <div className="flex-1 flex flex-col items-center justify-center">
         <div className="w-full max-w-[640px]">
-          <motion.div 
-            className="bg-[#1E2A3A] rounded-[28px] overflow-hidden shadow-2xl"
+          <motion.div
+            className="bg-card rounded-[28px] overflow-hidden shadow-2xl"
             animate={feedback === 'wrong' ? { x: [-10, 10, -10, 10, 0] } : {}}
           >
             <div className={`h-20 bg-linear-to-r ${currentSubject.gradient} flex items-center px-8`}>
-              <h3 className="font-nunito text-2xl font-bold text-white flex items-center gap-3">
-                {gameState === 'pattern' ? "🔮 Pattern Quest" : "🧠 Memory Star Map"}
+              <h3 className="font-nunito text-2xl font-bold text-card-foreground flex items-center gap-3">
+                <currentSubject.icon size={28} />
+                {currentSubject.name} Game
               </h3>
             </div>
-            
-            <div className="p-12 text-center">
-              <h4 className="font-nunito text-2xl font-bold mb-12 text-white">
-                {gameState === 'pattern' 
-                  ? "Which shape comes next in the sequence?" 
-                  : "Remember the star constellation!"}
-              </h4>
-              
-              <div className="flex justify-center items-center gap-8 mb-12">
-                {gameState === 'pattern' ? (
-                  <>
-                    <div className="w-20 h-20 rounded-2xl bg-purple-500/20 flex items-center justify-center border border-purple-500/40">
-                      <Star className="text-purple-400" size={40} />
-                    </div>
-                    <div className="w-20 h-20 rounded-2xl bg-cyan-500/20 flex items-center justify-center border border-cyan-500/40">
-                      <Globe className="text-cyan-400" size={40} />
-                    </div>
-                    <div className="w-20 h-20 rounded-2xl bg-purple-500/20 flex items-center justify-center border border-purple-500/40">
-                      <Star className="text-purple-400" size={40} />
-                    </div>
-                    <div className="w-12 h-1 bg-white/20" />
-                    <div className="w-20 h-20 rounded-2xl bg-white/5 border-2 border-dashed border-white/20 flex items-center justify-center">
-                      <span className="text-3xl text-white/20">?</span>
-                    </div>
-                  </>
-                ) : (
-                  <div className="grid grid-cols-3 gap-6">
-                    {[1, 2, 3, 4, 5, 6].map(i => (
-                      <motion.div 
+
+            <div className="p-12 text-center min-h-[400px] flex flex-col justify-center">
+              {isGenerating || !currentChallenge ? (
+                <div className="space-y-6">
+                  <motion.div
+                    animate={{ scale: [1, 1.1, 1], rotate: 360 }}
+                    transition={{ duration: 2, repeat: Infinity }}
+                    className="w-24 h-24 rounded-full border-4 border-primary/20 border-t-primary mx-auto"
+                  />
+                  <p className="font-nunito text-xl font-bold text-muted-foreground animate-pulse">Viddy is thinking of a challenge...</p>
+                </div>
+              ) : (
+                <>
+                  <h4 className="font-nunito text-2xl font-bold mb-12 text-card-foreground">
+                    {currentChallenge.question}
+                  </h4>
+
+                  <div className="flex justify-center items-center gap-8 mb-12">
+                    <motion.div
+                      animate={{ rotate: [0, 5, -5, 0], scale: [1, 1.05, 1] }}
+                      transition={{ duration: 4, repeat: Infinity }}
+                      className={`w-32 h-32 rounded-3xl bg-linear-to-br ${currentSubject.gradient} flex items-center justify-center border-2 border-white/20 shadow-2xl relative group`}
+                    >
+                      <div className="absolute inset-0 bg-white/10 blur-xl opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <Star size={64} className="text-card-foreground" />
+                    </motion.div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-6">
+                    {currentChallenge.options?.map((option: string, i: number) => (
+                      <button
                         key={i}
-                        animate={{ opacity: [0.5, 1, 0.5], scale: [1, 1.1, 1] }}
-                        transition={{ duration: 3, delay: i * 0.2, repeat: Infinity }}
-                        className={`w-12 h-12 rounded-full bg-linear-to-br ${currentSubject.gradient} border-2 border-white/30`}
-                      />
+                        onClick={() => handleAnswer(option)}
+                        disabled={!!feedback}
+                        className={cn(
+                          "h-24 rounded-2xl bg-card border-2 border-border flex items-center justify-center transition-all hover:border-ring/40 hover:bg-popover/5 active:scale-95 group relative px-6",
+                          feedback === 'correct' && option === currentChallenge.correct && "border-green-500 bg-green-500/10",
+                          feedback === 'wrong' && option !== currentChallenge.correct && "border-red-500 bg-red-500/10"
+                        )}
+                      >
+                        <span className="font-nunito font-bold text-xl text-foreground">{option}</span>
+
+                        {feedback === 'correct' && option === currentChallenge.correct && (
+                          <motion.div
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            className="absolute inset-0 flex items-center justify-center bg-green-500/20 rounded-2xl"
+                          >
+                            <CheckCircle2 size={48} className="text-green-500" />
+                          </motion.div>
+                        )}
+                      </button>
                     ))}
                   </div>
-                )}
-              </div>
-              
-              <div className="grid grid-cols-2 gap-6">
-                {[1, 2, 3, 4].map((i) => (
-                  <button
-                    key={i}
-                    onClick={() => handleAnswer(i === 1)}
-                    className={cn(
-                      "h-24 rounded-2xl bg-[#111827] border-2 border-white/5 flex items-center justify-center transition-all hover:border-[#8B5CF6]/40 hover:bg-white/5 active:scale-95 group relative",
-                      feedback === 'correct' && i === 1 && "border-green-500 bg-green-500/10",
-                      feedback === 'wrong' && i !== 1 && "border-red-500 bg-red-500/10"
-                    )}
-                  >
-                    {gameState === 'pattern' ? (
-                      i === 1 ? <Globe className="text-cyan-400" size={48} /> : <Rocket className="text-amber-400" size={48} />
-                    ) : (
-                      <Star className={cn("text-yellow-400", i === 1 ? "opacity-100" : "opacity-40")} size={48} />
-                    )}
-                    
-                    {feedback === 'correct' && i === 1 && (
-                      <motion.div 
-                        initial={{ scale: 0 }} 
-                        animate={{ scale: 1 }} 
-                        className="absolute inset-0 flex items-center justify-center bg-green-500/20 rounded-2xl"
-                      >
-                        <CheckCircle2 size={48} className="text-green-500" />
-                      </motion.div>
-                    )}
-                  </button>
-                ))}
-              </div>
+                </>
+              )}
             </div>
           </motion.div>
-          
+
           <AnimatePresence>
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               className="mt-8 text-center"
@@ -422,14 +536,15 @@ function GameScreen({ subject, onComplete }: any) {
           </AnimatePresence>
         </div>
       </div>
-    </motion.div>
+    </motion.div >
   );
 }
 
-function UploadScreen({ subject, onComplete }: any) {
+function UploadScreen({ subject, onComplete, onBack }: any) {
   const { student, isUploading, setIsUploading, uploadProgress, setUploadProgress } = useAppStore();
   const [isDragOver, setIsDragOver] = useState(false);
   const [uploadComplete, setUploadComplete] = useState(false);
+  const [chunksIndexed, setChunksIndexed] = useState(0);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const currentSubject = SUBJECTS.find(s => s.id === subject) || SUBJECTS[0];
 
@@ -455,7 +570,7 @@ function UploadScreen({ subject, onComplete }: any) {
     try {
       // Simulate upload progress
       const progressInterval = setInterval(() => {
-        setUploadProgress(prev => {
+        setUploadProgress((prev: number) => {
           if (prev >= 90) {
             clearInterval(progressInterval);
             return 90;
@@ -464,20 +579,21 @@ function UploadScreen({ subject, onComplete }: any) {
         });
       }, 200);
 
-      const response = await api.uploadTextbook(file, student.student_id, subject);
-      
+      const response = await api.uploadTextbook(file, student.student_id, subject, student.grade);
+
       clearInterval(progressInterval);
       setUploadProgress(100);
       setUploadComplete(true);
-      
-      toast.success(`${response.pages_indexed} pages indexed successfully! 📚`);
-      
+      setChunksIndexed(response.chunks_indexed);
+
+      toast.success(`${response.chunks_indexed} knowledge chunks indexed successfully! 📚`);
+
       setTimeout(() => {
         onComplete();
       }, 2000);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Upload failed:', error);
-      toast.error('Upload failed. Please try again!');
+      toast.error(error.message || 'Upload failed. Please try again!');
       setUploadProgress(0);
       setIsUploading(false);
     }
@@ -486,7 +602,7 @@ function UploadScreen({ subject, onComplete }: any) {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    
+
     const file = e.dataTransfer.files[0];
     if (file) {
       handleFileUpload(file);
@@ -501,7 +617,7 @@ function UploadScreen({ subject, onComplete }: any) {
   };
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -509,11 +625,20 @@ function UploadScreen({ subject, onComplete }: any) {
     >
       <div className="grid md:grid-cols-2 gap-16 max-w-6xl w-full">
         <div className="space-y-8">
-          <div>
-            <h2 className="font-nunito text-4xl font-bold text-foreground mb-2">Upload Your Textbook</h2>
-            <p className="text-muted-foreground text-xl">Viddy will read every page for you 📚</p>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={onBack}
+              className="p-2 -ml-2 rounded-full hover:bg-white/5 text-muted-foreground transition-all duration-200 hover:scale-110 active:scale-90 flex items-center justify-center"
+              title="Go Back"
+            >
+              <ArrowLeft size={28} />
+            </button>
+            <div>
+              <h2 className="font-nunito text-4xl font-bold text-foreground mb-2">Upload Your Textbook</h2>
+              <p className="text-muted-foreground text-xl">Viddy will read every page for you 📚</p>
+            </div>
           </div>
-          
+
           <input
             ref={fileInputRef}
             type="file"
@@ -521,8 +646,8 @@ function UploadScreen({ subject, onComplete }: any) {
             onChange={handleFileSelect}
             className="hidden"
           />
-          
-          <div 
+
+          <div
             onClick={() => !isUploading && fileInputRef.current?.click()}
             onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
             onDragLeave={() => setIsDragOver(false)}
@@ -535,8 +660,7 @@ function UploadScreen({ subject, onComplete }: any) {
           >
             {isUploading ? (
               <div className="w-full text-center space-y-8">
-                <motion.div 
-                  animate={{ rotate: 360 }}
+                <motion.div
                   transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
                   className="mx-auto w-24 h-24 rounded-full border-4 border-primary/20 border-t-primary flex items-center justify-center"
                 />
@@ -544,7 +668,7 @@ function UploadScreen({ subject, onComplete }: any) {
                   <p className="font-nunito font-bold text-2xl text-foreground">Reading your book...</p>
                   <p className="text-muted-foreground">Page {Math.floor(uploadProgress * 2)} of 200</p>
                   <div className="w-full h-3 bg-muted rounded-full overflow-hidden">
-                    <motion.div 
+                    <motion.div
                       className="h-full bg-gradient-to-r from-primary to-primary/70"
                       initial={{ width: 0 }}
                       animate={{ width: `${uploadProgress}%` }}
@@ -556,11 +680,11 @@ function UploadScreen({ subject, onComplete }: any) {
               <div className="text-center space-y-6">
                 <CheckCircle2 size={80} className="text-green-500 mx-auto" />
                 <h3 className="font-nunito text-3xl font-bold text-green-500">Your book is ready!</h3>
-                <p className="text-muted-foreground">247 knowledge stars indexed</p>
+                <p className="text-muted-foreground">{chunksIndexed || 247} knowledge stars indexed</p>
               </div>
             ) : (
               <div className="text-center space-y-6">
-                <motion.div 
+                <motion.div
                   whileHover={{ scale: 1.1, rotate: 10 }}
                   className="mx-auto"
                 >
@@ -577,22 +701,22 @@ function UploadScreen({ subject, onComplete }: any) {
             )}
           </div>
         </div>
-        
+
         <div className="flex flex-col items-center justify-center space-y-8">
-          <motion.div 
+          <motion.div
             animate={{ y: [0, -20, 0] }}
             transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
             className={`w-[240px] h-[240px] rounded-full bg-linear-to-br ${currentSubject.gradient} shadow-[0_0_60px_rgba(0,0,0,0.5)] flex items-center justify-center relative group`}
           >
             <div className="absolute inset-0 rounded-full bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity blur-xl" />
-            <currentSubject.icon size={100} className="text-white" />
+            <currentSubject.icon size={100} className="text-card-foreground" />
             <div className="absolute -bottom-4 right-0 bg-[#FCD34D] text-[#0A0E1A] font-nunito font-black px-6 py-2 rounded-full shadow-lg transform rotate-12">
               Grade {3}
             </div>
           </motion.div>
-          
+
           <div className="text-center space-y-4">
-            <h3 className="font-nunito text-4xl font-bold text-white">{currentSubject.name} Planet</h3>
+            <h3 className="font-nunito text-4xl font-bold text-foreground">{currentSubject.name} Planet</h3>
             <div className="space-y-3">
               {['Smart Concept Summaries', 'Visual Star Maps', 'AI Practice Quizzes'].map((point, i) => (
                 <div key={i} className="flex items-center gap-3 text-[#94A3B8] text-lg">
@@ -604,12 +728,12 @@ function UploadScreen({ subject, onComplete }: any) {
           </div>
         </div>
       </div>
-    </motion.div>
+    </motion.div >
   );
 }
 
-function ChatScreen({ userName, subject, onBack }: any) {
-  const { student, messages, addMessage, toggleThought } = useAppStore();
+function ChatScreen({ userName, subject, visuals, videoData, onGeneratePPT, onFetchMedia, onBack }: any) {
+  const { student, messages, addMessage, toggleThought, setCurrentScreen } = useAppStore();
   const [inputValue, setInputValue] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [currentStreamingMessage, setCurrentStreamingMessage] = useState('');
@@ -639,7 +763,7 @@ function ChatScreen({ userName, subject, onBack }: any) {
 
   const handleFeedback = async (messageId: string, feedbackType: 'thumbs_up' | 'thumbs_down') => {
     if (!student) return;
-    
+
     try {
       await api.logFeedback({
         student_id: student.student_id,
@@ -647,7 +771,7 @@ function ChatScreen({ userName, subject, onBack }: any) {
         feedback_type: feedbackType,
         timestamp: new Date().toISOString()
       });
-      
+
       toast.success(feedbackType === 'thumbs_up' ? 'Thanks for the feedback! 👍' : 'Feedback recorded. I\'ll improve!');
     } catch (error) {
       console.error('Failed to log feedback:', error);
@@ -656,7 +780,7 @@ function ChatScreen({ userName, subject, onBack }: any) {
 
   const handleSend = async () => {
     if (!inputValue.trim() || !student || isStreaming) return;
-    
+
     const query = inputValue.trim();
     setInputValue('');
 
@@ -672,52 +796,69 @@ function ChatScreen({ userName, subject, onBack }: any) {
     // Start streaming AI response
     setIsStreaming(true);
     setCurrentStreamingMessage('');
-    
+
     try {
       const eventSource = api.createChatStream(query, student.student_id);
-      
+
       let fullResponse = '';
       let messageId = '';
       let agentSteps: any[] = [];
-      
+
       eventSource.onmessage = (event) => {
+        if (event.data === '[DONE]') {
+          eventSource.close();
+          setIsStreaming(false);
+          return;
+        }
+
         try {
           const data = JSON.parse(event.data);
-          
+
           if (data.agent) {
-            // Agent step update
+            // Agent step update (e.g. status: "thinking" or "done")
+            const agentName = data.agent.charAt(0).toUpperCase() + data.agent.slice(1);
+
+            // If it's the result of an agent, we show its interim output
+            if (data.status === 'done' && data.text) {
+              fullResponse = data.text;
+              setCurrentStreamingMessage(fullResponse);
+            }
+
             agentSteps.push({
-              agent: data.agent.charAt(0).toUpperCase() + data.agent.slice(1) + ' Agent',
-              action: data.message
+              agent: agentName + ' Agent',
+              action: data.text || (data.status === 'thinking' ? `Thinking...` : 'Finished step')
             });
-          } else if (data.type === 'text') {
-            // Streaming text update
-            fullResponse = data.content;
-            setCurrentStreamingMessage(fullResponse);
-          } else if (data.type === 'complete') {
-            // Final complete message
-            messageId = data.message_id;
-            fullResponse = data.content;
-            
+          } else if (data.final) {
+            // Final complete message from council (data.final, data.query_id)
+            fullResponse = data.final;
+            const finalQueryId = data.query_id || `q_${Date.now()}`;
+
             addMessage({
-              id: messageId,
+              id: finalQueryId,
               role: 'ai',
               content: fullResponse,
               timestamp: new Date().toISOString(),
               thoughtExpanded: false,
-              agentSteps: data.metadata?.agent_steps || agentSteps,
+              agentSteps: [...agentSteps],
               safety_verified: data.safety_verified
             });
-            
+
             setCurrentStreamingMessage('');
             setIsStreaming(false);
             eventSource.close();
+
+            // Trigger media fetch based on the answer topic (simple extraction for now)
+            // Ideally, the backend would return "related_topics" in the final payload
+            if (messages.length > 0) {
+              // Just refresh media for the current subject context to keep it relevant
+              onFetchMedia(subject);
+            }
           }
         } catch (error) {
           console.error('Error parsing SSE data:', error);
         }
       };
-      
+
       eventSource.onerror = (error) => {
         console.error('SSE Error:', error);
         toast.error('Connection lost. Please try again.');
@@ -725,7 +866,7 @@ function ChatScreen({ userName, subject, onBack }: any) {
         setCurrentStreamingMessage('');
         eventSource.close();
       };
-      
+
     } catch (error) {
       console.error('Failed to start chat stream:', error);
       toast.error('Failed to send message. Please try again!');
@@ -747,7 +888,7 @@ function ChatScreen({ userName, subject, onBack }: any) {
             <p className="text-xs text-muted-foreground uppercase tracking-widest font-medium">Grade {student?.grade || 3} Explorer</p>
           </div>
         </div>
-        
+
         <div className="space-y-4 p-4 rounded-2xl bg-accent/50 border border-border">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -761,7 +902,7 @@ function ChatScreen({ userName, subject, onBack }: any) {
           </div>
           <p className="text-center text-xs text-muted-foreground">Next rank: <span className="text-foreground">Star Navigator</span></p>
         </div>
-        
+
         <div className="flex-1 space-y-6 overflow-y-auto">
           <div>
             <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-widest mb-4">Current Mission</p>
@@ -776,20 +917,20 @@ function ChatScreen({ userName, subject, onBack }: any) {
             </div>
           </div>
         </div>
-        
+
         <div className="pt-4 border-t border-border space-y-2">
           <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-accent text-sm text-muted-foreground transition-colors">
             <Settings size={18} /> Settings
           </button>
-          <button 
-            onClick={onBack}
+          <button
+            onClick={() => setCurrentScreen('welcome')}
             className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-accent text-sm text-muted-foreground transition-colors"
           >
-            <Layout size={18} /> Switch Subject
+            <ArrowLeft size={18} /> Logout / Home
           </button>
         </div>
       </div>
-      
+
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col relative bg-background">
         <header className="h-20 border-b border-border flex items-center justify-between px-8 bg-card/50 backdrop-blur-md">
@@ -803,13 +944,13 @@ function ChatScreen({ userName, subject, onBack }: any) {
               <p className="text-xs text-green-500">● Online</p>
             </div>
           </div>
-          
+
           <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-accent border border-border">
             {SUBJECTS.find(s => s.id === subject)?.icon && React.createElement(SUBJECTS.find(s => s.id === subject)!.icon, { size: 16, className: 'text-primary' })}
             <span className="text-sm font-bold text-foreground">{subject} Planet</span>
           </div>
         </header>
-        
+
         <div className="flex-1 overflow-y-auto p-8 space-y-8 scroll-smooth">
           {messages.map((msg, i) => (
             <div key={msg.id} className={cn("flex w-full", msg.role === 'user' ? "justify-end" : "justify-start")}>
@@ -819,27 +960,27 @@ function ChatScreen({ userName, subject, onBack }: any) {
                     <ViddyAvatar size={32} />
                   </div>
                 )}
-                
+
                 <div className="space-y-3">
                   <div className={cn(
                     "p-6 rounded-3xl text-lg font-inter leading-relaxed shadow-xl",
-                    msg.role === 'user' 
-                      ? "bg-gradient-to-br from-primary to-primary/80 text-primary-foreground rounded-tr-none" 
+                    msg.role === 'user'
+                      ? "bg-gradient-to-br from-primary to-primary/80 text-primary-foreground rounded-tr-none"
                       : "bg-card text-foreground border border-border rounded-tl-none"
                   )}>
                     {msg.content}
                   </div>
-                  
+
                   {msg.role === 'ai' && (
                     <div className="space-y-2">
                       <div className="flex gap-2 flex-wrap">
-                        <button 
+                        <button
                           onClick={() => handleFeedback(msg.id, 'thumbs_up')}
                           className="px-3 py-1.5 rounded-full bg-accent hover:bg-accent/80 text-xs flex items-center gap-2 text-muted-foreground transition-colors"
                         >
                           <ThumbsUp size={14} /> Helpful
                         </button>
-                        <button 
+                        <button
                           onClick={() => handleFeedback(msg.id, 'thumbs_down')}
                           className="px-3 py-1.5 rounded-full bg-accent hover:bg-accent/80 text-xs flex items-center gap-2 text-muted-foreground transition-colors"
                         >
@@ -851,10 +992,10 @@ function ChatScreen({ userName, subject, onBack }: any) {
                           </div>
                         )}
                       </div>
-                      
+
                       {msg.agentSteps && msg.agentSteps.length > 0 && (
                         <div className="rounded-2xl border border-border overflow-hidden">
-                          <button 
+                          <button
                             className="w-full px-4 py-2 bg-accent hover:bg-accent/80 flex items-center justify-between text-xs text-muted-foreground transition-colors"
                             onClick={() => toggleThought(msg.id)}
                           >
@@ -863,10 +1004,10 @@ function ChatScreen({ userName, subject, onBack }: any) {
                             </span>
                             <ChevronRight size={14} className={cn("transition-transform", msg.thoughtExpanded && "rotate-90")} />
                           </button>
-                          
+
                           <AnimatePresence>
                             {msg.thoughtExpanded && (
-                              <motion.div 
+                              <motion.div
                                 initial={{ height: 0 }}
                                 animate={{ height: 'auto' }}
                                 exit={{ height: 0 }}
@@ -888,7 +1029,7 @@ function ChatScreen({ userName, subject, onBack }: any) {
                     </div>
                   )}
                 </div>
-                
+
                 {msg.role === 'user' && (
                   <div className="flex-shrink-0 pt-2">
                     <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center font-nunito font-bold text-xs text-primary-foreground">
@@ -899,7 +1040,7 @@ function ChatScreen({ userName, subject, onBack }: any) {
               </div>
             </div>
           ))}
-          
+
           {/* Streaming Message */}
           {isStreaming && currentStreamingMessage && (
             <div className="flex w-full justify-start">
@@ -920,13 +1061,13 @@ function ChatScreen({ userName, subject, onBack }: any) {
               </div>
             </div>
           )}
-          
+
           <div ref={messagesEndRef} />
         </div>
-        
+
         <div className="p-8 bg-gradient-to-t from-background via-background to-transparent">
           <div className="relative max-w-4xl mx-auto">
-            <Input 
+            <Input
               placeholder={`Ask Viddy anything about your ${subject} textbook...`}
               className="pr-20 pl-8 h-16 text-lg bg-card border-border"
               value={inputValue}
@@ -934,7 +1075,7 @@ function ChatScreen({ userName, subject, onBack }: any) {
               onKeyDown={(e: any) => e.key === 'Enter' && !e.shiftKey && handleSend()}
               disabled={isStreaming}
             />
-            <button 
+            <button
               onClick={handleSend}
               disabled={isStreaming || !inputValue.trim()}
               className="absolute right-3 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center text-primary-foreground shadow-lg active:scale-95 transition-transform disabled:opacity-50 disabled:cursor-not-allowed"
@@ -944,9 +1085,9 @@ function ChatScreen({ userName, subject, onBack }: any) {
           </div>
         </div>
       </div>
-      
+
       {/* Sidebar Right */}
-      <div className="w-[300px] border-l border-white/5 bg-[#111827] flex flex-col p-6 space-y-8">
+      <div className="w-[300px] border-l border-border bg-card flex flex-col p-6 space-y-8">
         <div>
           <h3 className="font-nunito font-bold text-lg mb-4 flex items-center gap-2">
             <Star size={20} className="text-[#FCD34D]" fill="#FCD34D" /> Knowledge Cosmos
@@ -957,55 +1098,69 @@ function ChatScreen({ userName, subject, onBack }: any) {
               { name: 'Condensation', color: '#8B5CF6' },
               { name: 'Precipitation', color: '#10B981' }
             ].map((concept, i) => (
-              <div key={i} className="group p-3 rounded-xl bg-white/5 border border-white/5 hover:border-white/20 transition-all cursor-pointer">
+              <div key={i} className="group p-3 rounded-xl bg-popover/5 border border-border hover:border-border/80 transition-all cursor-pointer">
                 <div className="flex items-center gap-3">
-                  <div 
-                    className="w-10 h-10 rounded-full flex items-center justify-center text-white"
+                  <div
+                    className="w-10 h-10 rounded-full flex items-center justify-center text-card-foreground"
                     style={{ background: concept.color }}
                   >
                     <Globe size={18} />
                   </div>
                   <div>
-                    <p className="text-sm font-bold text-white group-hover:text-cyan-400 transition-colors">{concept.name}</p>
-                    <p className="text-[10px] text-[#475569]">Chapter 4 reference</p>
+                    <p className="text-sm font-bold text-foreground group-hover:text-cyan-400 transition-colors">{concept.name}</p>
+                    <p className="text-[10px] text-muted-foreground">Chapter 4 reference</p>
                   </div>
                 </div>
               </div>
             ))}
           </div>
         </div>
-        
+
         <div className="flex-1 space-y-4">
           <p className="text-[10px] text-[#475569] uppercase font-bold tracking-widest">Generated Visuals</p>
           <div className="grid grid-cols-2 gap-3">
-            {[1, 2].map(i => (
-              <div key={i} className="aspect-video rounded-lg bg-white/5 border border-white/10 p-2 flex flex-col justify-end relative group overflow-hidden">
+            {visuals.length > 0 ? visuals.map((vis, i) => (
+              <div
+                key={i}
+                onClick={() => onGeneratePPT(i)}
+                className="aspect-video rounded-lg bg-white/5 border border-white/10 p-2 flex flex-col justify-end relative group overflow-hidden cursor-pointer hover:border-primary/50 transition-colors"
+              >
                 <div className="absolute inset-0 bg-linear-to-t from-black/60 to-transparent" />
                 <div className="relative z-10 flex items-center justify-between">
-                  <span className="text-[10px] text-white/80">PPT {i}</span>
-                  <Upload size={12} className="text-white/80" />
+                  <span className="text-[10px] text-muted-foreground/80 truncate max-w-[80%]">{vis.title}</span>
+                  <Download size={12} className="text-muted-foreground/80" />
                 </div>
-                <div className="absolute inset-0 bg-[#8B5CF6]/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
-                   <CheckCircle2 size={24} className="text-white" />
+                <div className="absolute inset-0 bg-[--color-primary]/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
+                  <span className="text-[10px] font-bold text-white">Generate</span>
                 </div>
               </div>
-            ))}
+            )) : (
+              <p className="text-xs text-muted-foreground col-span-2">Ask a question to unlock visuals!</p>
+            )}
           </div>
         </div>
-        
+
         <div className="space-y-4">
           <p className="text-[10px] text-[#475569] uppercase font-bold tracking-widest">Video Explanation</p>
-          <div className="aspect-video rounded-xl overflow-hidden relative group">
-            <ImageWithFallback 
-              src="https://images.unsplash.com/photo-1602979082099-7971376fce79" 
-              className="w-full h-full object-cover" 
-            />
-            <div className="absolute inset-0 bg-black/40 flex items-center justify-center group-hover:bg-black/20 transition-all">
-              <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center text-white group-hover:scale-110 transition-transform">
-                <div className="w-0 h-0 border-t-[8px] border-t-transparent border-l-[12px] border-l-white border-b-[8px] border-b-transparent ml-1" />
+          <div className="aspect-video rounded-xl overflow-hidden relative group bg-black/40 border border-white/10">
+            {videoData ? (
+              <iframe
+                src={videoData.embed_url}
+                title={videoData.title}
+                className="w-full h-full"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
+            ) : (
+              <div className="w-full h-full flex flex-col items-center justify-center text-muted-foreground gap-2">
+                <PlayCircle size={24} />
+                <span className="text-xs">Video loading...</span>
               </div>
-            </div>
+            )}
           </div>
+          {videoData && (
+            <p className="text-xs text-muted-foreground leading-tight line-clamp-2">{videoData.title}</p>
+          )}
         </div>
       </div>
     </div>

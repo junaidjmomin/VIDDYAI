@@ -11,8 +11,10 @@ from datetime import datetime
 
 router = APIRouter()
 
-# In-memory storage (replace with SQLite/PostgreSQL for production)
-students_db: Dict[str, Dict[str, Any]] = {}
+from core.database import db
+
+# In-memory session cache (still useful for fast access, but backed by SQLite)
+students_cache: Dict[str, Dict[str, Any]] = db.get_all_students()
 
 
 class LoginRequest(BaseModel):
@@ -30,7 +32,7 @@ class LoginResponse(BaseModel):
     profile: Dict[str, Any]
 
 
-@router.post("/api/login", response_model=LoginResponse)
+@router.post("/login", response_model=LoginResponse)
 async def login(data: LoginRequest):
     """
     Student login/registration endpoint
@@ -41,7 +43,7 @@ async def login(data: LoginRequest):
     student_key = f"{data.name.lower()}_{data.grade}_{data.subject.lower()}"
     
     existing_student = None
-    for sid, profile in students_db.items():
+    for sid, profile in students_cache.items():
         if profile.get("lookup_key") == student_key:
             existing_student = sid
             break
@@ -49,10 +51,11 @@ async def login(data: LoginRequest):
     if existing_student:
         # Return existing student
         student_id = existing_student
-        profile = students_db[student_id]
+        profile = students_cache[student_id]
         
         # Update last login
         profile["last_login"] = datetime.now().isoformat()
+        db.save_student(profile)
         
         return LoginResponse(
             success=True,
@@ -92,7 +95,8 @@ async def login(data: LoginRequest):
             "lookup_key": student_key
         }
         
-        students_db[student_id] = profile
+        students_cache[student_id] = profile
+        db.save_student(profile)
         
         return LoginResponse(
             success=True,
@@ -102,47 +106,9 @@ async def login(data: LoginRequest):
         )
 
 
-@router.get("/api/profile/{student_id}")
-async def get_profile(student_id: str):
-    """
-    Get student profile by ID
-    """
-    if student_id not in students_db:
-        raise HTTPException(status_code=404, detail="Student not found")
-    
-    return {
-        "success": True,
-        "profile": students_db[student_id]
-    }
+# Profile management moved to profile.py
 
 
-@router.put("/api/profile/{student_id}")
-async def update_profile(student_id: str, updates: Dict[str, Any]):
-    """
-    Update student profile
-    """
-    if student_id not in students_db:
-        raise HTTPException(status_code=404, detail="Student not found")
-    
-    profile = students_db[student_id]
-    
-    # Update allowed fields
-    allowed_fields = [
-        "learning_style", "motivation", "confidence_band", 
-        "subject", "textbook_uploaded"
-    ]
-    
-    for field, value in updates.items():
-        if field in allowed_fields:
-            profile[field] = value
-    
-    return {
-        "success": True,
-        "message": "Profile updated",
-        "profile": profile
-    }
-
-
-# Export students_db for use in other routers
+# Export students_cache for use in other routers
 def get_students_db():
-    return students_db
+    return students_cache

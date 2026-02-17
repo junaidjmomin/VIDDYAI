@@ -11,6 +11,7 @@ from datetime import datetime
 import json
 from core.agents import run_council, run_single_agent_response
 from routers.auth import get_students_db
+from core.database import db
 
 router = APIRouter()
 
@@ -24,7 +25,7 @@ class ChatMessage(BaseModel):
     context: Optional[str] = None
 
 
-@router.get("/api/chat/stream")
+@router.get("/stream")
 async def chat_stream(query: str, student_id: str):
     """
     Server-Sent Events (SSE) streaming endpoint for AI chat
@@ -53,9 +54,15 @@ async def chat_stream(query: str, student_id: str):
         """Generate SSE events from agent pipeline"""
         try:
             # Run the council and stream events
+            full_response = ""
             async for event in run_council(query, student_id, profile):
+                if not event.get("agent") and event.get("content"):
+                    full_response = event.get("content")
                 # Send each event as SSE
                 yield f"data: {json.dumps(event)}\n\n"
+            
+            # Persist chat history
+            db.save_chat_message(student_id, query, full_response or "[Analysis Complete]", datetime.now().isoformat())
             
             # Final completion signal
             yield "data: [DONE]\n\n"
@@ -82,7 +89,7 @@ async def chat_stream(query: str, student_id: str):
     )
 
 
-@router.post("/api/chat/message")
+@router.post("/message")
 async def send_message(message: ChatMessage):
     """
     Non-streaming chat endpoint (faster, single response)
@@ -136,34 +143,23 @@ async def send_message(message: ChatMessage):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/api/chat/history/{student_id}")
-async def get_chat_history(student_id: str, limit: int = 50):
+@router.get("/history/{student_id}")
+async def get_chat_history_endpoint(student_id: str, limit: int = 50):
     """
     Get chat history for a student
-    
-    Args:
-        student_id: Unique student identifier
-        limit: Maximum number of messages to return (default: 50)
     """
-    students_db = get_students_db()
-    
-    if student_id not in students_db:
-        raise HTTPException(status_code=404, detail="Student not found")
-    
-    history = chat_history_db.get(student_id, [])
-    
-    # Return most recent messages
-    recent_history = history[-limit:] if len(history) > limit else history
+    from core.database import db
+    history = db.get_chat_history(student_id, limit)
     
     return {
         "success": True,
         "student_id": student_id,
         "total_messages": len(history),
-        "history": recent_history
+        "history": history
     }
 
 
-@router.delete("/api/chat/history/{student_id}")
+@router.delete("/history/{student_id}")
 async def clear_chat_history(student_id: str):
     """
     Clear chat history for a student
