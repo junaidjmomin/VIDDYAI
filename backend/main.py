@@ -7,6 +7,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
+from fastapi.staticfiles import StaticFiles
+
+
 
 load_dotenv()
 
@@ -101,6 +104,7 @@ async def health_check():
         ]
     }
 
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 if __name__ == "__main__":
     import uvicorn

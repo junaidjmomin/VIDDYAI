@@ -200,17 +200,20 @@ class APIClient {
 
   // Content Generation
   async generatePPT(concept: string, grade: number, subject: string, keyPoints: string[]) {
-    return this.request('/api/generate/ppt', {
-      method: 'POST',
-      body: JSON.stringify({
-        concept: concept,
-        grade: grade,
-        subject: subject,
-        key_points: keyPoints,
-        include_activity: true
-      }),
-    });
-  }
+  return fetch('http://localhost:8000/api/generate/ppt', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      concept,
+      grade,
+      subject,
+      key_points: keyPoints,
+      include_activity: true
+    })
+  });
+}
 
   async searchVideos(concept: string, grade: number = 3, subject: string = 'Science'): Promise<VideoResponse> {
     const params = new URLSearchParams({

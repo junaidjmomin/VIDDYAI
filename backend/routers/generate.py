@@ -8,12 +8,16 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from pptx import Presentation
+from services.llm_service import generate_key_points
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
 import tempfile
 import os
 from dotenv import load_dotenv
+import uuid
+import base64
+import requests
 
 # YouTube API
 try:
@@ -24,6 +28,12 @@ except ImportError:
     print("Warning: google-api-python-client not installed. YouTube search will use fallback.")
 
 load_dotenv()
+load_dotenv()
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+if not OPENAI_API_KEY:
+    raise ValueError("OPENAI_API_KEY not found in environment variables")
 
 router = APIRouter()
 
@@ -31,7 +41,6 @@ router = APIRouter()
 class PPTRequest(BaseModel):
     concept: str
     grade: int
-    key_points: List[str]
     subject: Optional[str] = "Science"
     include_activity: bool = True
 
@@ -48,6 +57,12 @@ async def generate_ppt(data: PPTRequest):
     
     Returns: PPT file download
     """
+
+    key_points = generate_key_points(
+    concept=data.concept,
+    grade=data.grade,
+    subject=data.subject
+)
     
     prs = Presentation()
     prs.slide_width = Inches(13.33)
@@ -98,7 +113,7 @@ async def generate_ppt(data: PPTRequest):
     # SLIDES 2-N: Key Points
     colors = [accent_purple, accent_cyan, accent_green, accent_orange]
     
-    for i, point in enumerate(data.key_points[:6]):  # Max 6 key points
+    for i, point in enumerate(key_points[:6]):  # Max 6 key points
         slide = prs.slides.add_slide(prs.slide_layouts[6])
         bg = slide.background.fill
         bg.solid()
@@ -181,6 +196,58 @@ async def generate_ppt(data: PPTRequest):
         }
     )
 
+
+class ImageRequest(BaseModel):
+    concept: str
+    grade: int
+    subject: str
+
+@router.post("/generate/images")
+async def generate_images(data: ImageRequest):
+
+    images = []
+
+    for i in range(3):
+        prompt = f"""
+                    Create a clear, colorful educational diagram explaining {data.concept}
+                    for a Grade {data.grade} {data.subject} student.
+                    Style: simple textbook illustration, labeled parts, kid-friendly,
+                    white background, no watermark, high clarity.
+                    """
+
+        image_url = generate_image_file(prompt)
+        images.append(image_url)
+
+    return {
+        "success": True,
+        "images": images
+    } 
+def generate_image_file(prompt: str):
+    response = requests.post(
+        "https://api.openai.com/v1/images/generations",
+        headers={
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "model": "gpt-image-1",
+            "prompt": prompt,
+            "size": "1024x1024"
+        }
+    )
+
+    image_base64 = response.json()["data"][0]["b64_json"]
+    image_bytes = base64.b64decode(image_base64)
+
+    file_name = f"{uuid.uuid4()}.png"
+    file_path = f"static/generated/{file_name}"
+
+    os.makedirs("static/generated", exist_ok=True)
+
+    with open(file_path, "wb") as f:
+        f.write(image_bytes)
+
+    return f"http://localhost:8000/{file_path}"
 
 @router.get("/video/search")
 async def search_video(concept: str, grade: int, subject: str = "Science"):

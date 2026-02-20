@@ -109,18 +109,49 @@ export default function App() {
     }
   };
 
-  const handleGeneratePPT = async (visualIndex: number) => {
-    const topic = visuals[visualIndex].title;
-    toast.promise(
-      api.generatePPT(topic, student?.grade || 3, subject, [`Learn about ${topic}`, `Key concepts of ${topic}`, `Summary`]),
-      {
-        loading: 'Generating your presentation...',
-        success: 'Presentation ready!',
-        error: 'Generation failed'
-      }
-    );
-  };
+const handleGeneratePPT = async (visualIndex: number) => {
+  if (!student) return;
 
+  const topic = visuals[visualIndex].title;
+
+  const toastId = toast.loading("Generating your presentation...");
+
+  try {
+    const response = await api.generatePPT(
+      topic,
+      student.grade,
+      subject,
+      [
+        `Introduction to ${topic}`,
+        `Key concepts of ${topic}`,
+        `Examples of ${topic}`,
+        `Summary of ${topic}`
+      ]
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText);
+    }
+
+    const blob = await response.blob();
+
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${topic.replace(/\s+/g, "_")}.pptx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+
+    toast.success("Presentation downloaded successfully! 🚀", { id: toastId });
+
+  } catch (error) {
+    console.error("PPT generation failed:", error);
+    toast.error("Generation failed. Please try again.", { id: toastId });
+  }
+};
   // Fetch relevant media when subject changes or on load
   useEffect(() => {
     if (currentScreen === 'chat' && subject) {
@@ -876,7 +907,7 @@ function ChatScreen({ userName, subject, visuals, videoData, onGeneratePPT, onFe
   };
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex flex-1 w-full overflow-hidden">
       {/* Sidebar Left */}
       <div className="w-[300px] border-r border-border bg-card flex flex-col p-6 space-y-8">
         <div className="flex items-center gap-4">
