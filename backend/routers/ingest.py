@@ -1,29 +1,21 @@
 """
 Textbook Ingestion Router — VidyaSetu AI
-Handles PDF upload, text extraction, and ChromaDB embedding
-
-CHANGES from original:
-  - extract_text_from_pdf now returns (text, page_chunks) tuple
-  - page_chunks passed to chunk_and_embed for citation metadata
-  - Cleaner error messages
+Handles PDF upload with grade+subject validation before indexing
 """
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
-from pydantic import BaseModel
-from typing import Optional
 import tempfile
 import os
 import uuid
 from datetime import datetime
 from core.ingestion import extract_text_from_pdf, chunk_and_embed, get_collection_stats
+from services.validator import validate_pdf_content
 from routers.auth import get_students_db
+from core.database import db
 
 router = APIRouter()
 
-from core.database import db
-
 textbooks_cache = {}
-
 UPLOAD_DIR    = os.getenv("UPLOAD_DIR", "./uploads")
 MAX_FILE_SIZE = int(os.getenv("MAX_UPLOAD_SIZE_MB", "50")) * 1024 * 1024
 os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -47,11 +39,11 @@ async def upload_textbook(
     if len(file_content) > MAX_FILE_SIZE:
         raise HTTPException(
             status_code=400,
-            detail=f"File too large. Max: {MAX_FILE_SIZE // (1024*1024)}MB",
+            detail=f"File too large. Max: {MAX_FILE_SIZE // (1024 * 1024)}MB",
         )
 
     textbook_id = str(uuid.uuid4())
-    tmp_path    = None
+    tmp_path = None
 
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
@@ -59,28 +51,31 @@ async def upload_textbook(
             tmp_path = tmp.name
 
         print(f"[Upload] Extracting text from: {file.filename}")
-        # FIX: extract_text_from_pdf now returns (full_text, page_chunks)
         full_text, page_chunks = extract_text_from_pdf(tmp_path)
 
-        if not full_text or len(full_text.strip()) < 100:
-            raise ValueError("PDF appears empty or text extraction failed. "
-                             "Make sure it's a text-based PDF (not a scanned image).")
+        # ── VALIDATION: Check PDF matches grade + subject ─────────────────────
+        is_valid, validation_message = validate_pdf_content(full_text, subject, grade)
+        print(f"[Upload] Validation: {validation_message}")
+
+        if not is_valid:
+            raise HTTPException(status_code=422, detail=validation_message)
 
         print(f"[Upload] Chunking & embedding for {student_id}/{subject}")
-        # FIX: pass page_chunks so chunk_and_embed can store page numbers
         chunks_count = chunk_and_embed(
             text=full_text,
             student_id=student_id,
             subject=subject,
             grade=grade,
             textbook_id=textbook_id,
-            page_chunks=page_chunks,  # NEW
+            page_chunks=page_chunks,
         )
 
         permanent_path = os.path.join(UPLOAD_DIR, f"{textbook_id}.pdf")
         with open(permanent_path, "wb") as f:
             f.write(file_content)
 
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"[Upload] Error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to process PDF: {str(e)}")
@@ -89,16 +84,16 @@ async def upload_textbook(
             os.unlink(tmp_path)
 
     metadata = {
-        "textbook_id":   textbook_id,
-        "student_id":    student_id,
-        "subject":       subject,
-        "grade":         grade,
-        "filename":      file.filename,
-        "file_size":     len(file_content),
+        "textbook_id":    textbook_id,
+        "student_id":     student_id,
+        "subject":        subject,
+        "grade":          grade,
+        "filename":       file.filename,
+        "file_size":      len(file_content),
         "chunks_indexed": chunks_count,
-        "status":        "ready",
-        "uploaded_at":   datetime.now().isoformat(),
-        "file_path":     permanent_path,
+        "status":         "ready",
+        "uploaded_at":    datetime.now().isoformat(),
+        "file_path":      permanent_path,
     }
     textbooks_cache[textbook_id] = metadata
     db.save_textbook(metadata)
@@ -115,7 +110,8 @@ async def upload_textbook(
         "textbook_id":    textbook_id,
         "chunks_indexed": chunks_count,
         "status":         "ready",
-        "message":        f"✅ {file.filename} processed! {chunks_count} knowledge chunks indexed.",
+        "validation":     validation_message,
+        "message":        f"✅ {file.filename} verified! {chunks_count} knowledge chunks indexed.",
         "xp_earned":      10,
         "total_xp":       profile["xp"],
     }
