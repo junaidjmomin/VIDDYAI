@@ -785,32 +785,60 @@ function ChatScreen({ userName, subject, visuals, videoData, onGeneratePPT, onFe
     }
   };
 
-  const handleSpeak = (messageId: string, text: string) => {
-    if (!window.speechSynthesis) {
-      toast.error('Your browser does not support text-to-speech.');
-      return;
-    }
+  const audioRef = React.useRef<HTMLAudioElement | null>(null);
 
+  const handleSpeak = async (messageId: string, text: string) => {
     // If already speaking this message → stop
-    if (speakingMessageId === messageId) {
-      window.speechSynthesis.cancel();
+    if (speakingMessageId === messageId && audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
       setSpeakingMessageId(null);
       return;
     }
 
     // Stop any previous speech
-    window.speechSynthesis.cancel();
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
 
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'en-IN';
-    utterance.rate = 0.95;
-    utterance.pitch = 1.05;
+    setSpeakingMessageId(messageId);
 
-    utterance.onstart = () => setSpeakingMessageId(messageId);
-    utterance.onend = () => setSpeakingMessageId(null);
-    utterance.onerror = () => setSpeakingMessageId(null);
+    try {
+      const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${apiBase}/api/tts/speak`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
 
-    window.speechSynthesis.speak(utterance);
+      if (!res.ok) {
+        throw new Error(`TTS failed: ${res.status}`);
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+
+      audio.onended = () => {
+        setSpeakingMessageId(null);
+        audioRef.current = null;
+        URL.revokeObjectURL(url);
+      };
+
+      audio.onerror = () => {
+        toast.error('Failed to play audio.');
+        setSpeakingMessageId(null);
+        audioRef.current = null;
+      };
+
+      await audio.play();
+    } catch (error: any) {
+      console.error('TTS Error:', error);
+      toast.error('Text-to-speech failed.');
+      setSpeakingMessageId(null);
+    }
   };
 
   const handleMicClick = async () => {
