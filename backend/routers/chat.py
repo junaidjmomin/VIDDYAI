@@ -60,6 +60,15 @@ async def chat_stream(query: str, student_id: str):
     students_db = get_students_db()
 
     if student_id not in students_db:
+<<<<<<< Updated upstream
+=======
+       
+    
+        students_db = get_students_db()
+
+# Auto-create student if not found
+    if student_id not in students_db:
+>>>>>>> Stashed changes
         students_db[student_id] = {
             "grade": 5,
             "subject": "Science",
@@ -69,11 +78,15 @@ async def chat_stream(query: str, student_id: str):
         }
 
     profile = students_db[student_id]
+<<<<<<< Updated upstream
     grade   = profile.get("grade", 3)
     subject = profile.get("subject", "General")
 
     is_allowed, block_message = validate_question(query, grade, subject)
 
+=======
+        
+>>>>>>> Stashed changes
     async def event_generator():
         try:
             # ── BLOCKED ─────────────────────────────────────
@@ -138,6 +151,10 @@ async def send_message(message: ChatMessage):
             "level": 1,
             "total_questions_asked": 0
         }
+<<<<<<< Updated upstream
+=======
+
+>>>>>>> Stashed changes
     profile = students_db[message.student_id]
     grade   = profile.get("grade", 3)
     subject = profile.get("subject", "General")
