@@ -1,8 +1,8 @@
 """
-VidyaSetu AI ΓÇö Multi-Agent Council (Groq)
+VidyaSetu AI — Multi-Agent Council (Groq)
 
 KEY FIXES over original:
-  1. RAG now returns (context, chunks) ΓÇö citations flow through to final response
+  1. RAG now returns (context, chunks) — citations flow through to final response
   2. Explainer receives structured context with page labels (not raw text dump)
   3. Conversation memory: last 3 turns injected into every Groq prompt
   4. Hallucination circuit-breaker: if retrieval returns nothing AND textbook
@@ -16,7 +16,7 @@ from core.rag import retrieve_context, format_citations
 from core.prompt_builder import build_agent_prompt, build_system_prompt, build_fallback_prompt
 from core.config import Config
 
-# ΓöÇΓöÇ Conversation memory store  (in-memory per session) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+# ── Conversation memory store  (in-memory per session) ──────────────────────
 # Structure: { student_id: [ {"role": "user"|"assistant", "content": "..."} ] }
 _conversation_memory: dict[str, list[dict]] = {}
 MEMORY_TURNS = 3  # how many previous exchanges to include
@@ -40,7 +40,7 @@ def clear_memory(student_id: str):
     _conversation_memory.pop(student_id, None)
 
 
-# ΓöÇΓöÇ Lazy LLM singletons ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+# ── Lazy LLM singletons ───────────────────────────────────────────────────────
 heavy_llm = None
 fast_llm  = None
 
@@ -53,7 +53,7 @@ def _ensure_llms():
     fast_llm  = Config.get_fast_llm()
 
 
-# ΓöÇΓöÇ Single agent runner ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+# ── Single agent runner ───────────────────────────────────────────────────────
 async def run_agent(
     role:      str,
     input_text: str,
@@ -77,7 +77,7 @@ async def run_agent(
     return response.content
 
 
-# ΓöÇΓöÇ 3-Agent Council (streaming) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+# ── 3-Agent Council (streaming) ───────────────────────────────────────────────
 async def run_council(
     query:      str,
     student_id: str,
@@ -85,7 +85,7 @@ async def run_council(
 ) -> AsyncGenerator[dict, None]:
     """
     SSE-streaming 4-stage pipeline:
-      retriever ΓåÆ explainer ΓåÆ simplifier ΓåÆ encourager
+      retriever → explainer → simplifier → encourager
 
     Each stage yields a dict event for the frontend.
     """
@@ -93,8 +93,8 @@ async def run_council(
     grade           = profile.get("grade", 3)
     textbook_present = profile.get("textbook_uploaded", False)
 
-    # ΓöÇΓöÇ Stage 1: RAG Retrieval ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-    yield {"agent": "retriever", "status": "thinking", "text": "Searching your textbookΓÇª"}
+    # ── Stage 1: RAG Retrieval ────────────────────────────────────────────────
+    yield {"agent": "retriever", "status": "thinking", "text": "Searching your textbook…"}
 
     context_text, chunks = retrieve_context(query, student_id, subject)
     citations            = format_citations(chunks)
@@ -104,10 +104,10 @@ async def run_council(
     if textbook_present and not chunks:
         no_match_msg = (
             "I searched your textbook but couldn't find information about this. "
-            "Please check with your teacher, or try asking in a different way! ≡ƒôÜ"
+            "Please check with your teacher, or try asking in a different way! 📚"
         )
         yield {"agent": "retriever", "status": "done",
-               "text": "Searched your textbook ΓÇö topic not found in uploaded pages."}
+               "text": "Searched your textbook — topic not found in uploaded pages."}
         yield {"final": no_match_msg, "safety_verified": True,
                "query_id": f"q_{student_id}_{abs(hash(query)) % 100000}",
                "citations": ""}
@@ -121,8 +121,8 @@ async def run_council(
         "citations": citations,
     }
 
-    # ΓöÇΓöÇ Stage 2: Explainer ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-    yield {"agent": "explainer", "status": "thinking", "text": "Thinking about the answerΓÇª"}
+    # ── Stage 2: Explainer ────────────────────────────────────────────────────
+    yield {"agent": "explainer", "status": "thinking", "text": "Thinking about the answer…"}
 
     # Inject conversation memory for context continuity
     memory = _get_memory(student_id)
@@ -143,13 +143,13 @@ async def run_council(
     explanation = await run_agent("explainer", explainer_input, grade, subject, use_heavy=True)
     yield {"agent": "explainer", "status": "done", "text": explanation}
 
-    # ΓöÇΓöÇ Stage 3: Simplifier ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-    yield {"agent": "simplifier", "status": "thinking", "text": "Making it easier to understandΓÇª"}
+    # ── Stage 3: Simplifier ───────────────────────────────────────────────────
+    yield {"agent": "simplifier", "status": "thinking", "text": "Making it easier to understand…"}
     simplified = await run_agent("simplifier", explanation, grade, subject, use_heavy=False)
     yield {"agent": "simplifier", "status": "done", "text": simplified}
 
-    # ΓöÇΓöÇ Stage 4: Encourager ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-    yield {"agent": "encourager", "status": "thinking", "text": "Adding some Viddy magicΓÇª"}
+    # ── Stage 4: Encourager ───────────────────────────────────────────────────
+    yield {"agent": "encourager", "status": "thinking", "text": "Adding some Viddy magic…"}
     final = await run_agent("encourager", simplified, grade, subject, use_heavy=False)
 
     # Append citations to final response
@@ -171,7 +171,7 @@ async def run_council(
     _save_memory(student_id, query, final)
 
 
-# ΓöÇΓöÇ Single-shot response (non-streaming) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+# ── Single-shot response (non-streaming) ──────────────────────────────────────
 async def run_single_agent_response(
     query:      str,
     student_id: str,
@@ -198,8 +198,8 @@ async def run_single_agent_response(
     if textbook_present and not chunks:
         return (
             "I searched your textbook carefully, but I couldn't find information "
-            "about this topic in the pages you uploaded. Try asking your teacher! ≡ƒôÜ\n\n"
-            "≡ƒÆí Tip: Make sure your textbook PDF includes the chapter this question is from."
+            "about this topic in the pages you uploaded. Try asking your teacher! 📚\n\n"
+            "💡 Tip: Make sure your textbook PDF includes the chapter this question is from."
         )
 
     # Build adaptive system prompt with context
@@ -246,10 +246,10 @@ async def run_single_agent_response(
 
     except Exception as e:
         print(f"[Agents] LLM error: {e}")
-        return "I'm having trouble right now. Can you try asking that again? ≡ƒªë"
+        return "I'm having trouble right now. Can you try asking that again? 🦉"
 
 
-# ΓöÇΓöÇ Safety check ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+# ── Safety check ──────────────────────────────────────────────────────────────
 async def _check_safety(text: str) -> bool:
     """Use Groq llama-3.1-8b-instant for fast content safety check."""
     try:
@@ -259,7 +259,7 @@ async def _check_safety(text: str) -> bool:
 
         response = await llm.ainvoke([
             SystemMessage(content=(
-                "You are a content safety checker for a children's educational app (ages 6ΓÇô12). "
+                "You are a content safety checker for a children's educational app (ages 6–12). "
                 "Respond with ONLY 'SAFE' or 'UNSAFE'. "
                 "Mark UNSAFE if content contains: violence, adult content, hate speech, "
                 "or anything inappropriate for primary school children."

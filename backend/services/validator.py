@@ -1,52 +1,121 @@
 """
 VidyaSetu AI — Validator Service
-Ensures uploaded PDFs + questions are safe, grade-appropriate,
-and match selected subject.
+Educational Safety + Subject Alignment Layer
 """
 
-from typing import Tuple, List
+from typing import Tuple, List, Dict
 
-# ───────────────── CONFIG ─────────────────
+
+# ───────────────── PDF SAFETY FILTER ─────────────────
 
 FORBIDDEN_KEYWORDS_PDF = [
+    # Advanced Academic Content
     "machine learning","neural network","deep learning","artificial intelligence",
     "tensor","regression","classification","clustering","reinforcement learning",
     "phd","thesis","dissertation","journal","ieee","acm","arxiv",
     "tensorflow","pytorch","keras","university","semester",
-    "engineering","medical","finance","business administration",
-    "pornography","sexual","drug","alcohol","tobacco"
+
+    # Professional Domains (not primary school)
+    "engineering","medical","finance","business administration","law",
+
+    # Unsafe material
+    "pornography","sexual","drug","alcohol","tobacco","violence"
 ]
 
-# Categorized question filtering
-FORBIDDEN_KEYWORDS_QUESTION = {
-    "violence": ["kill","murder","bomb","attack","weapon","suicide"],
-    "adult": ["porn","xxx","sex","nude"],
-    "drugs": ["cocaine","heroin","meth","weed","drug"],
-    "prompt": ["ignore previous instructions","system prompt","jailbreak"],
-    "offtopic": ["movie","cinema","celebrity","gossip","casino","bitcoin","crypto"]
+
+# ───────────────── QUESTION SAFETY FILTER ─────────────────
+
+FORBIDDEN_KEYWORDS_QUESTION: Dict[str, List[str]] = {
+
+    # Harm / Violence
+    "violence": [
+        "kill","murder","bomb","attack","weapon","shoot","suicide","stab", "gun"
+    ],
+
+    # Adult content
+    "adult": [
+        "porn","xxx","sex","nude","onlyfans"
+    ],
+
+    # Drugs / substances
+    "drugs": [
+        "cocaine","heroin","meth","weed","drug","alcohol","smoking"
+    ],
+
+    # Prompt attacks / jailbreak attempts
+    "prompt": [
+        "ignore previous instructions",
+        "system prompt",
+        "jailbreak",
+        "act as",
+        "developer mode",
+        "unfiltered"
+    ],
+
+    # Non-academic distractions
+    "offtopic": [
+        "movie","cinema","celebrity","gossip",
+        "casino","betting","bitcoin","crypto",
+        "instagram","tiktok","youtube"
+    ],
 }
 
+
+# ───────────────── EDUCATIONAL REDIRECT RESPONSES ─────────────────
+
 SAFETY_RESPONSES = {
+
     "violence":
-        "I can’t help with harmful or violent topics.\n\n"
-        "Let’s learn something safe from your textbook instead.",
+        "I can’t help with harmful or dangerous topics.\n\n"
+        "Real learning keeps people safe. "
+        "Let’s explore something from your textbook instead 📚.",
+
 
     "adult":
-        "That topic isn’t appropriate for our learning space.\n\n"
-        "Ask me something from your subject and I’ll help you learn! 📚",
+        "That topic isn’t suitable for a school learning space.\n\n"
+        "Ask me anything from your subject and we’ll learn together! 🌱",
+
 
     "drugs":
         "I can’t help with harmful substances.\n\n"
-        "If you like chemistry, we can explore safe experiments instead.",
+        "If you're curious about science, we can explore safe chemistry or biology ideas instead 🔬.",
+
 
     "prompt":
-        "I must follow safe learning rules 🙂\n\n"
-        "Ask me any academic question!",
+        "I follow learning safety rules so students get trustworthy answers 🙂\n\n"
+        "Try asking a question from your lesson!",
+
 
     "offtopic":
-        "That sounds fun, but I'm here to help with studies.\n\n"
-        "Ask something from your textbook!"
+        "That sounds interesting, but I'm your study companion right now.\n\n"
+        "Let’s focus on your subject — what chapter are you studying? 📖",
 }
+
+
+# ───────────────── CORE SAFETY CHECK ─────────────────
+
+def detect_forbidden_category(question: str) -> Tuple[bool, str]:
+    """
+    Detects if question belongs to a forbidden category.
+
+    Returns:
+        (is_blocked, response_message)
+    """
+
+    if not question:
+        return False, ""
+
+    q = question.lower()
+
+    for category, keywords in FORBIDDEN_KEYWORDS_QUESTION.items():
+        for kw in keywords:
+            if kw in q:
+                return True, SAFETY_RESPONSES.get(
+                    category,
+                    "Let's focus on learning topics instead! 📚"
+                )
+
+    return False, ""
 
 SUBJECT_KEYWORDS = {
     "math": [

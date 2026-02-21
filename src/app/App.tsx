@@ -25,7 +25,11 @@ import {
   ThumbsDown,
   Layout,
   Download,
-  PlayCircle
+  PlayCircle,
+  Mic,
+  MicOff,
+  Volume2,
+  VolumeX
 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip } from 'recharts';
@@ -768,7 +772,10 @@ function ChatScreen({ userName, subject, visuals, videoData, onGeneratePPT, onFe
   const [inputValue, setInputValue] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [currentStreamingMessage, setCurrentStreamingMessage] = useState('');
+  const [isListening, setIsListening] = useState(false);
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
+  const recognitionRef = React.useRef<any>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -807,6 +814,132 @@ function ChatScreen({ userName, subject, visuals, videoData, onGeneratePPT, onFe
     } catch (error) {
       console.error('Failed to log feedback:', error);
     }
+  };
+
+  const audioRef = React.useRef<HTMLAudioElement | null>(null);
+
+  const handleSpeak = async (messageId: string, text: string) => {
+    // If already speaking this message → stop
+    if (speakingMessageId === messageId && audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+      setSpeakingMessageId(null);
+      return;
+    }
+
+    // Stop any previous speech
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+
+    setSpeakingMessageId(messageId);
+
+    try {
+      const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+      const res = await fetch(`${apiBase}/api/tts/speak`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+
+      if (!res.ok) {
+        throw new Error(`TTS failed: ${res.status}`);
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+
+      audio.onended = () => {
+        setSpeakingMessageId(null);
+        audioRef.current = null;
+        URL.revokeObjectURL(url);
+      };
+
+      audio.onerror = () => {
+        toast.error('Failed to play audio.');
+        setSpeakingMessageId(null);
+        audioRef.current = null;
+      };
+
+      await audio.play();
+    } catch (error: any) {
+      console.error('TTS Error:', error);
+      toast.error('Text-to-speech failed.');
+      setSpeakingMessageId(null);
+    }
+  };
+
+  const handleMicClick = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      toast.error('Microphone not supported in this browser.');
+      return;
+    }
+
+    // If already recording → stop
+    if (isListening && recognitionRef.current) {
+      recognitionRef.current.stop();
+      return;
+    }
+
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      toast.error('Microphone permission denied. Please allow mic access.');
+      return;
+    }
+
+    const chunks: BlobPart[] = [];
+    const mediaRecorder = new MediaRecorder(stream);
+    recognitionRef.current = mediaRecorder;
+
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunks.push(e.data);
+    };
+
+    mediaRecorder.onstart = () => setIsListening(true);
+
+    mediaRecorder.onstop = async () => {
+      setIsListening(false);
+      stream.getTracks().forEach((t) => t.stop());
+
+      const audioBlob = new Blob(chunks, { type: 'audio/webm' });
+      const formData = new FormData();
+      formData.append('audio', audioBlob, 'recording.webm');
+
+      const toastId = toast.loading('Transcribing…');
+      try {
+        const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+        const res = await fetch(`${apiBase}/api/stt/transcribe`, {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || `Server error ${res.status}`);
+        }
+
+        const { transcript } = await res.json();
+        if (transcript) {
+          setInputValue((prev) => (prev ? prev + ' ' + transcript : transcript));
+          toast.success('Done!', { id: toastId });
+        } else {
+          toast.warning('No speech detected. Please try again.', { id: toastId });
+        }
+      } catch (err: any) {
+        toast.error(err.message || 'Transcription failed.', { id: toastId });
+      }
+    };
+
+    // Auto-stop after 30 seconds to prevent runaway recordings
+    mediaRecorder.start();
+    setTimeout(() => {
+      if (mediaRecorder.state === 'recording') mediaRecorder.stop();
+    }, 30_000);
   };
 
   const handleSend = async () => {
@@ -1004,7 +1137,7 @@ function ChatScreen({ userName, subject, visuals, videoData, onGeneratePPT, onFe
 
                   {msg.role === 'ai' && (
                     <div className="space-y-2">
-                      <div className="flex gap-2 flex-wrap">
+                      <div className="flex gap-2 flex-wrap items-center">
                         <button
                           onClick={() => handleFeedback(msg.id, 'thumbs_up')}
                           className="px-3 py-1.5 rounded-full bg-accent hover:bg-accent/80 text-xs flex items-center gap-2 text-muted-foreground transition-colors"
@@ -1016,6 +1149,21 @@ function ChatScreen({ userName, subject, visuals, videoData, onGeneratePPT, onFe
                           className="px-3 py-1.5 rounded-full bg-accent hover:bg-accent/80 text-xs flex items-center gap-2 text-muted-foreground transition-colors"
                         >
                           <ThumbsDown size={14} /> Not quite
+                        </button>
+                        {/* TTS speaker button */}
+                        <button
+                          onClick={() => handleSpeak(msg.id, msg.content)}
+                          title={speakingMessageId === msg.id ? 'Stop reading' : 'Read aloud'}
+                          className={cn(
+                            'p-1.5 rounded-full transition-all',
+                            speakingMessageId === msg.id
+                              ? 'bg-primary/20 text-primary animate-pulse'
+                              : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                          )}
+                        >
+                          {speakingMessageId === msg.id
+                            ? <VolumeX size={14} />
+                            : <Volume2 size={14} />}
                         </button>
                         {msg.safety_verified && (
                           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-500/10 text-[10px] font-bold text-green-500 uppercase">
@@ -1100,12 +1248,27 @@ function ChatScreen({ userName, subject, visuals, videoData, onGeneratePPT, onFe
           <div className="relative max-w-4xl mx-auto">
             <Input
               placeholder={`Ask Viddy anything about your ${subject} textbook...`}
-              className="pr-20 pl-8 h-16 text-lg bg-card border-border"
+              className="pr-36 pl-8 h-16 text-lg bg-card border-border"
               value={inputValue}
               onChange={(e: any) => setInputValue(e.target.value)}
               onKeyDown={(e: any) => e.key === 'Enter' && !e.shiftKey && handleSend()}
               disabled={isStreaming}
             />
+            {/* Microphone button */}
+            <button
+              onClick={handleMicClick}
+              disabled={isStreaming}
+              title={isListening ? 'Stop listening' : 'Speak your question'}
+              className={cn(
+                'absolute right-[72px] top-1/2 -translate-y-1/2 w-12 h-12 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-95 disabled:cursor-not-allowed',
+                isListening
+                  ? 'bg-red-500 text-white shadow-[0_0_16px_rgba(239,68,68,0.6)] animate-pulse'
+                  : 'bg-accent hover:bg-accent/70 text-muted-foreground hover:text-foreground disabled:opacity-50'
+              )}
+            >
+              {isListening ? <MicOff size={20} /> : <Mic size={20} />}
+            </button>
+            {/* Send button */}
             <button
               onClick={handleSend}
               disabled={isStreaming || !inputValue.trim()}
