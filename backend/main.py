@@ -9,10 +9,6 @@ from dotenv import load_dotenv
 import os
 from fastapi.staticfiles import StaticFiles
 
-<<<<<<< Updated upstream
-=======
-
->>>>>>> Stashed changes
 
 
 load_dotenv()
