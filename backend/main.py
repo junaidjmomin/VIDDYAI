@@ -28,7 +28,7 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup_event():
     try:
-        from routers import auth, profile, chat, ingest, feedback, generate
+        from routers import auth, profile, chat, ingest, feedback, generate, stt
 
         app.include_router(auth.router,     prefix="/api",          tags=["Authentication"])
         app.include_router(profile.router,  prefix="/api/profile",  tags=["Profile & Games"])
@@ -36,6 +36,7 @@ async def startup_event():
         app.include_router(ingest.router,   prefix="/api/textbook", tags=["Textbook Upload"])
         app.include_router(feedback.router, prefix="/api",          tags=["Feedback & Analytics"])
         app.include_router(generate.router, prefix="/api",          tags=["Content Generation"])
+        app.include_router(stt.router,      prefix="/api/stt",      tags=["Speech-to-Text"])
 
         print("✅ All routers loaded successfully")
 
@@ -44,6 +45,11 @@ async def startup_event():
             print("⚠️  WARNING: GROQ_API_KEY not set — chat will not work!")
         else:
             print("✅ GROQ_API_KEY detected")
+
+        if not os.getenv("OPENAI_API_KEY"):
+            print("⚠️  WARNING: OPENAI_API_KEY not set — Whisper STT will not work!")
+        else:
+            print("✅ OPENAI_API_KEY detected")
 
     except Exception as e:
         print(f"❌ ERROR DURING ROUTER LOAD: {e}")
