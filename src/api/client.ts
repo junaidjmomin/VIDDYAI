@@ -215,14 +215,26 @@ class APIClient {
   });
 }
 
-  async searchVideos(concept: string, grade: number = 3, subject: string = 'Science'): Promise<VideoResponse> {
-    const params = new URLSearchParams({
-      concept: concept,
-      grade: grade.toString(),
-      subject: subject
-    });
-    return this.request<VideoResponse>(`/api/video/search?${params.toString()}`);
-  }
+  async searchVideos(
+  concept: string,
+  grade: number = 3,
+  subject: string = 'Science',
+  iqScore: number = 50,
+  eqScore: number = 50
+): Promise<VideoResponse> {
+
+  const params = new URLSearchParams({
+    concept: concept,
+    grade: grade.toString(),
+    subject: subject,
+    iq_score: iqScore.toString(),
+    eq_score: eqScore.toString()
+  });
+
+  return this.request<VideoResponse>(
+    `/api/video/search?${params.toString()}`
+  );
+}
 
   // Health Check
   async healthCheck() {

@@ -96,7 +96,13 @@ export default function App() {
   const fetchRelatedMedia = async (topic: string) => {
     try {
       // 1. Search Video
-      const video = await api.searchVideos(topic, student?.grade || 3, subject);
+      const video = await api.searchVideos(
+  topic,
+  student?.grade || 3,
+  subject,
+  student?.iq_scores?.[subject] || 50,
+student?.eq_scores?.[subject] || 50
+);
       if (video.success) {
         setVideoData(video);
       } else {

@@ -222,35 +222,66 @@ async def generate_images(data: ImageRequest):
         "success": True,
         "images": images
     } 
-def generate_image_file(prompt: str):
-    response = requests.post(
-        "https://api.openai.com/v1/images/generations",
-        headers={
-            "Authorization": f"Bearer {OPENAI_API_KEY}",
-            "Content-Type": "application/json"
-        },
-        json={
-            "model": "gpt-image-1",
-            "prompt": prompt,
-            "size": "1024x1024"
-        }
-    )
 
-    image_base64 = response.json()["data"][0]["b64_json"]
-    image_bytes = base64.b64decode(image_base64)
+
+def generate_image_file(prompt: str):
+    import uuid
+    import requests
+    import os
+
+    os.makedirs("static/generated", exist_ok=True)
+
+    encoded_prompt = requests.utils.quote(prompt)
+
+    image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=1024&seed=42"
+
+    headers = {
+        "User-Agent": "Mozilla/5.0"
+    }
+
+    response = requests.get(image_url, headers=headers, timeout=60)
+
+    print("STATUS:", response.status_code)
+
+    if response.status_code != 200:
+        print("RESPONSE:", response.text)
+        raise Exception("Free image generation failed")
 
     file_name = f"{uuid.uuid4()}.png"
     file_path = f"static/generated/{file_name}"
 
-    os.makedirs("static/generated", exist_ok=True)
-
     with open(file_path, "wb") as f:
-        f.write(image_bytes)
+        f.write(response.content)
 
-    return f"http://localhost:8000/{file_path}"
+    return f"http://localhost:8000/static/generated/{file_name}"
+
+def build_search_query(concept, grade, subject, iq_score, eq_score):
+    base = f"CBSE Grade {grade} {subject} {concept}"
+
+    if iq_score < 40:
+        style = "simple explanation for kids step by step"
+    elif iq_score > 75:
+        style = "advanced detailed explanation with experiments"
+    else:
+        style = "clear explanation with examples"
+
+    if eq_score < 40:
+        tone = "real life examples storytelling"
+    elif eq_score > 75:
+        tone = "interactive discussion animation"
+    else:
+        tone = "engaging animated explanation"
+
+    return f"{base} {style} {tone}"
 
 @router.get("/video/search")
-async def search_video(concept: str, grade: int, subject: str = "Science"):
+async def search_video(
+    concept: str,
+    grade: int,
+    subject: str,
+    iq_score: float,
+    eq_score: float
+):
     """
     Search for educational videos on YouTube
     
@@ -292,7 +323,7 @@ async def search_video(concept: str, grade: int, subject: str = "Science"):
         youtube = build("youtube", "v3", developerKey=youtube_api_key)
         
         # Construct search query optimized for kids
-        search_query = f"CBSE Grade {grade} {subject} {concept} explained for kids animated"
+        search_query = build_search_query(concept, grade, subject, iq_score, eq_score)
         
         # Search for videos
         search_response = youtube.search().list(
