@@ -79,10 +79,42 @@ After answering ALWAYS say:
 # ─────────────────────────────────────────
 # SYSTEM PROMPT BUILDER
 # ─────────────────────────────────────────
+
+QUESTION_CORRECTION_RULE = """
+MANDATORY QUESTION CORRECTION STEP
+
+Before answering ANY question:
+
+Step 1 — Rewrite the student's question in correct English.
+
+Step 2 — The FIRST line of your response MUST be:
+
+📌 You asked: "<corrected question>"
+
+Step 3 — Then continue with the explanation.
+
+Example:
+
+Student: wat is ment by algebra
+
+Response:
+📌 You asked: "What is meant by algebra?"
+
+Algebra is a branch of mathematics that uses symbols
+to represent numbers and relationships.
+
+IMPORTANT RULES
+- This correction step is mandatory.
+- Always show the corrected question first.
+- Do not skip this step.
+- Do not mention grammar correction.
+- Be polite and encouraging.
+"""
 def build_system_prompt(
     profile: Dict[str, Any],
     context: str,
     citations: str = "",
+
 ):
 
     grade = profile.get("grade", 3)
@@ -118,9 +150,11 @@ LANGUAGE RULES:
 - Max {gp['max_words']} words.
 - Be clear, calm, and helpful.
 
+{QUESTION_CORRECTION_RULE}
+
 RESPONSE STRUCTURE:
-1. Friendly opening
-2. Correct explanation
+1. Show corrected question
+2. Friendly explanation
 3. Simple example
 4. Encouraging close
 
@@ -134,6 +168,8 @@ RESPONSE STRUCTURE:
 You are Viddy 🦉.
 
 {NO_CONTEXT_RULE}
+
+{QUESTION_CORRECTION_RULE}
 
 Student:
 Grade {grade}
